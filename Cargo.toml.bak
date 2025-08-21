@@ -1,0 +1,43 @@
+[package]
+name = "linux_gateway"
+version = "0.1.0"
+edition = "2024"
+build = "build.rs"
+
+prost = "0.12"
+bytes = "1"
+crc32fast = "1.3"
+thiserror = "1"
+tokio = { version = "1", features = ["rt-multi-thread","macros","fs","io-util","signal"] }
+hex = "0.4"
+anyhow = "1"
+axum = "0.7"
+serde = { version="1", features=["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version="0.3", features=["fmt","env-filter"] }
+
+prost = "0.12"
+bytes = "1"
+crc32fast = "1.3"
+thiserror = "1"
+tokio = { version = "1", features = ["rt-multi-thread","macros","fs","io-util","signal"] }
+hex = "0.4"
+anyhow = "1"
+axum = "0.7"
+serde = { version="1", features=["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version="0.3", features=["fmt","env-filter"] }
+
+[dependencies]
+prost = "0.12"                # Protobuf runtime
+bytes = "1"                   # handy byte buffers
+crc32fast = "1.3"             # CRC32 for frame integrity
+thiserror = "1"               # clean error types
+tokio = { version = "1", features = ["rt-multi-thread","macros","fs","io-util","signal"] }
+hex = "0.4"                   # for FRAME_HEX printing
+anyhow = "1"                  # simple error handling
+
+[build-dependencies]
+prost-build = "0.12"          # generates Rust from .proto at build time
