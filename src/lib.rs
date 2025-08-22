@@ -1,7 +1,7 @@
-use std::time::{SystemTime, UNIX_EPOCH};
 use bytes::{BufMut, BytesMut};
 use crc32fast::Hasher;
 use prost::Message;
+use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 // --- framing constants ---
