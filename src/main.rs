@@ -1,5 +1,9 @@
-use std::{env, fs::OpenOptions, io::{Read, Write}};
-use linux_gateway::{encode_calc_request, encode_calc_response, decode_calc_response};
+use linux_gateway::{decode_calc_response, encode_calc_request, encode_calc_response};
+use std::{
+    env,
+    fs::OpenOptions,
+    io::{Read, Write},
+};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -25,7 +29,10 @@ fn main() {
         let dev = args.get(3).map(|s| s.as_str()).unwrap_or("/dev/rpmsg0");
         let to_write = hex::decode(hex_in).expect("hex");
 
-        let mut f = OpenOptions::new().read(true).write(true).open(dev)
+        let mut f = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(dev)
             .expect("open rpmsg chardev");
         f.write_all(&to_write).expect("write");
 
@@ -40,7 +47,7 @@ fn main() {
         full.extend_from_slice(&rest);
         match decode_calc_response(&full) {
             Ok(resp) => println!("BOUNCE_OK SUM={}", resp.sum),
-            Err(e) =>   println!("BOUNCE_DECODE_ERROR={e}"),
+            Err(e) => println!("BOUNCE_DECODE_ERROR={e}"),
         }
         return;
     }
@@ -67,32 +74,55 @@ fn main() {
 
     eprintln!("Usage:");
     eprintln!("  {} serve                 # start HTTP API", args[0]);
-    eprintln!("  {} <a> <b>               # prints CalcRequest frame HEX", args[0]);
-    eprintln!("  {} --decode=HEX          # decodes a CalcResponse frame", args[0]);
-    eprintln!("  {} make_resp <sum>       # prints CalcResponse frame HEX", args[0]);
-    eprintln!("  {} rpmsg-bounce HEX [DEV]# write HEX to rpmsg, read & decode", args[0]);
+    eprintln!(
+        "  {} <a> <b>               # prints CalcRequest frame HEX",
+        args[0]
+    );
+    eprintln!(
+        "  {} --decode=HEX          # decodes a CalcResponse frame",
+        args[0]
+    );
+    eprintln!(
+        "  {} make_resp <sum>       # prints CalcResponse frame HEX",
+        args[0]
+    );
+    eprintln!(
+        "  {} rpmsg-bounce HEX [DEV]# write HEX to rpmsg, read & decode",
+        args[0]
+    );
 }
 
 //
 // -------- HTTP server (axum) --------
 //
-use axum::{routing::post, Router, Json};
+use axum::{routing::post, Json, Router};
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Deserialize)]
-struct EncodeReq { a: u32, b: u32 }
+struct EncodeReq {
+    a: u32,
+    b: u32,
+}
 #[derive(Serialize)]
-struct EncodeResp { a: u32, b: u32, frame_hex: String }
+struct EncodeResp {
+    a: u32,
+    b: u32,
+    frame_hex: String,
+}
 
 #[derive(Deserialize)]
-struct DecodeReq { frame_hex: String }
+struct DecodeReq {
+    frame_hex: String,
+}
 #[derive(Serialize)]
-struct DecodeResp { sum: Option<u32>, error: Option<String> }
+struct DecodeResp {
+    sum: Option<u32>,
+    error: Option<String>,
+}
 
 async fn run_server() -> anyhow::Result<()> {
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info"));
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
     let app = Router::new()
@@ -106,7 +136,11 @@ async fn run_server() -> anyhow::Result<()> {
 
 async fn encode_calc_http(Json(req): Json<EncodeReq>) -> Json<EncodeResp> {
     let frame = encode_calc_request(req.a, req.b);
-    Json(EncodeResp { a: req.a, b: req.b, frame_hex: hex::encode_upper(frame) })
+    Json(EncodeResp {
+        a: req.a,
+        b: req.b,
+        frame_hex: hex::encode_upper(frame),
+    })
 }
 
 async fn decode_calc_http(Json(req): Json<DecodeReq>) -> Json<DecodeResp> {
@@ -114,7 +148,13 @@ async fn decode_calc_http(Json(req): Json<DecodeReq>) -> Json<DecodeResp> {
         .ok()
         .and_then(|d| linux_gateway::decode_calc_response(&d).ok())
     {
-        Some(resp) => Json(DecodeResp { sum: Some(resp.sum), error: None }),
-        None => Json(DecodeResp { sum: None, error: Some("decode error".into()) }),
+        Some(resp) => Json(DecodeResp {
+            sum: Some(resp.sum),
+            error: None,
+        }),
+        None => Json(DecodeResp {
+            sum: None,
+            error: Some("decode error".into()),
+        }),
     }
 }

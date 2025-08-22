@@ -1,7 +1,7 @@
-use linux_gateway::{encode_calc_request, decode_calc_response, FrameError};
+use linux_gateway::{decode_calc_response, encode_calc_request, FrameError};
 
 const SYNC: u16 = 0xA55A;
-const VER:  u8  = 0x01;
+const VER: u8 = 0x01;
 
 // Minimal protobuf varint encoder for u32.
 fn varint_u32(mut v: u32) -> Vec<u8> {
@@ -18,8 +18,8 @@ fn varint_u32(mut v: u32) -> Vec<u8> {
 fn mk_resp_frame(sum: u32) -> Vec<u8> {
     // Protobuf payload: field 1 (varint) + value
     let mut payload = Vec::with_capacity(1 + 5);
-    payload.push(0x08);               // field #1, varint wire type
-    payload.extend(varint_u32(sum));  // value
+    payload.push(0x08); // field #1, varint wire type
+    payload.extend(varint_u32(sum)); // value
 
     let crc = {
         let mut h = crc32fast::Hasher::new();

@@ -5,10 +5,13 @@ use thiserror::Error;
 
 // --- framing constants ---
 const SYNC: u16 = 0xA55A;
-const VER:  u8  = 0x01;
+const VER: u8 = 0x01;
 
 #[repr(u8)]
-enum MsgType { CalcReq = 1, CalcResp = 2 }
+enum MsgType {
+    CalcReq = 1,
+    CalcResp = 2,
+}
 
 fn crc32(data: &[u8]) -> u32 {
     let mut h = Hasher::new();
@@ -29,11 +32,16 @@ pub mod proto {
 
 #[derive(Debug, Error)]
 pub enum FrameError {
-    #[error("short header")] ShortHeader,
-    #[error("bad sync")]     BadSync,
-    #[error("length mismatch")] Length,
-    #[error("crc mismatch")]  Crc,
-    #[error("{0}")] ProstDecode(#[from] prost::DecodeError),
+    #[error("short header")]
+    ShortHeader,
+    #[error("bad sync")]
+    BadSync,
+    #[error("length mismatch")]
+    Length,
+    #[error("crc mismatch")]
+    Crc,
+    #[error("{0}")]
+    ProstDecode(#[from] prost::DecodeError),
 }
 
 pub fn encode_calc_request(a: u32, b: u32) -> Vec<u8> {
@@ -51,21 +59,33 @@ pub fn encode_calc_request(a: u32, b: u32) -> Vec<u8> {
     buf.to_vec()
 }
 
-pub fn decode_calc_response(frame: &[u8]) -> Result<proto::rpmsg::calc::v1::CalcResponse, FrameError> {
-    if frame.len() < 10 { return Err(FrameError::ShortHeader); }
-    if u16::from_be_bytes([frame[0], frame[1]]) != SYNC { return Err(FrameError::BadSync); }
+pub fn decode_calc_response(
+    frame: &[u8],
+) -> Result<proto::rpmsg::calc::v1::CalcResponse, FrameError> {
+    if frame.len() < 10 {
+        return Err(FrameError::ShortHeader);
+    }
+    if u16::from_be_bytes([frame[0], frame[1]]) != SYNC {
+        return Err(FrameError::BadSync);
+    }
 
-    let _ver   = frame[2];
-    let typ    = frame[3];
-    let len    = u16::from_be_bytes([frame[4], frame[5]]) as usize;
-    let got_crc= u32::from_be_bytes([frame[6], frame[7], frame[8], frame[9]]);
+    let _ver = frame[2];
+    let typ = frame[3];
+    let len = u16::from_be_bytes([frame[4], frame[5]]) as usize;
+    let got_crc = u32::from_be_bytes([frame[6], frame[7], frame[8], frame[9]]);
 
     let need = 10 + len;
-    if frame.len() < need { return Err(FrameError::Length); }
+    if frame.len() < need {
+        return Err(FrameError::Length);
+    }
 
     let payload = &frame[10..need];
-    if crc32(payload) != got_crc { return Err(FrameError::Crc); }
-    if typ != MsgType::CalcResp as u8 { return Err(FrameError::Length); }
+    if crc32(payload) != got_crc {
+        return Err(FrameError::Crc);
+    }
+    if typ != MsgType::CalcResp as u8 {
+        return Err(FrameError::Length);
+    }
 
     Ok(proto::rpmsg::calc::v1::CalcResponse::decode(payload)?)
 }
