@@ -97,7 +97,6 @@ fn main() {
 //
 use axum::{routing::post, Json, Router};
 use serde::{Deserialize, Serialize};
-use tracing_subscriber::EnvFilter;
 
 #[derive(Deserialize)]
 struct EncodeReq {
@@ -160,18 +159,6 @@ async fn decode_calc_http(Json(req): Json<DecodeReq>) -> Json<DecodeResp> {
 
 // ---- m2: tracing + jaeger ----
 fn init_tracing() -> anyhow::Result<()> {
-    use opentelemetry::sdk::trace as sdktrace;
-    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
-
-    let tracer = opentelemetry_jaeger::new_agent_pipeline()
-        .with_service_name("linux_gateway")
-        .install_simple()?;
-
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    tracing_subscriber::registry()
-        .with(filter)
-        .with(tracing_subscriber::fmt::layer())
-        .with(tracing_opentelemetry::layer().with_tracer(tracer))
-        .init();
+    tracing_subscriber::fmt::init();
     Ok(())
 }
