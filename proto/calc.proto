@@ -1,5 +1,18 @@
 syntax = "proto3";
 package rpmsg.calc.v1;
 
-message CalcRequest { uint32 a = 1; uint32 b = 2; }
-message CalcResponse { uint32 sum = 1; }
+message TraceCtx {
+  bytes   trace_id = 1;   // 16 bytes (OpenTelemetry TraceId)
+  fixed64 span_id  = 2;   // 8 bytes  (OpenTelemetry SpanId)
+}
+
+message CalcRequest {
+  uint32 a = 1;
+  uint32 b = 2;
+  TraceCtx trace = 3;     // optional
+}
+
+message CalcResponse {
+  uint32 sum = 1;
+  TraceCtx trace = 2;     // optional
+}

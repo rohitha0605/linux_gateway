@@ -45,7 +45,7 @@ pub enum FrameError {
 }
 
 pub fn encode_calc_request(a: u32, b: u32) -> Vec<u8> {
-    let req = proto::rpmsg::calc::v1::CalcRequest { a, b };
+    let req = proto::rpmsg::calc::v1::CalcRequest { a, b, trace: None };
     let mut payload = Vec::with_capacity(8);
     req.encode(&mut payload).expect("encode");
 
@@ -91,7 +91,7 @@ pub fn decode_calc_response(
 }
 
 pub fn encode_calc_response(sum: u32) -> Vec<u8> {
-    let resp = proto::rpmsg::calc::v1::CalcResponse { sum };
+    let resp = proto::rpmsg::calc::v1::CalcResponse { sum, trace: None };
     let mut payload = Vec::with_capacity(8);
     resp.encode(&mut payload).expect("encode");
 
