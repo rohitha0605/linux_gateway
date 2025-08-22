@@ -17,6 +17,11 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt","env-filter"] }
+rand = "0.8"
 
 [build-dependencies]
 prost-build = "0.12"
+
+# ---- tracing + otel (m2) ----
+opentelemetry-jaeger = { version = "0.21", features = ["rt-tokio"] }
+rand = "0.8"

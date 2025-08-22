@@ -105,3 +105,11 @@ pub fn encode_calc_response(sum: u32) -> Vec<u8> {
     frame.extend_from_slice(&payload);
     frame
 }
+
+// ---- trace header helper ----
+pub fn gen_trace_header() -> proto::rpmsg::calc::v1::TraceHeader {
+    use rand::RngCore;
+    let mut id = [0u8; 16];
+    rand::thread_rng().fill_bytes(&mut id);
+    proto::rpmsg::calc::v1::TraceHeader { id: id.to_vec(), ts_ns: 0 }
+}
