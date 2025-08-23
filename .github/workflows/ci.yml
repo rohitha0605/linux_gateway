@@ -6,42 +6,19 @@ on:
     branches: [ "main" ]
 
 jobs:
-  check-renode:
-    runs-on: ubuntu-latest
-    outputs:
-      smoke_present: ${{ steps.chk.outputs.present }}
-    steps:
-      - uses: actions/checkout@v4
-      - id: chk
-        shell: bash
-        run: |
-          if [ -f renode/smoke.resc ]; then
-            echo "present=true"  >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-          fi
-
   build-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: System deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y protobuf-compiler lcov
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy, rustfmt, llvm-tools-preview
+          components: clippy, rustfmt
 
       - uses: Swatinem/rust-cache@v2
-
-      - name: Format check
-        run: cargo fmt --all -- --check
-
-      - name: Clippy (deny warnings)
-        run: cargo clippy --all-targets -- -D warnings
 
       - name: Build
         run: cargo build --verbose
@@ -49,11 +26,19 @@ jobs:
       - name: Test
         run: cargo test --all --verbose
 
-    
-      - name: Coverage (lcov)
+      - name: Format check
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (deny warnings)
+        run: cargo clippy --all-targets -- -D warnings
+
+      # --- Coverage (lcov) ---
+      - name: Install llvm-tools + cargo-llvm-cov
         run: |
-          cargo install cargo-llvm-cov --locked
-          cargo llvm-cov --workspace --lcov --output-path lcov.info
+          rustup component add llvm-tools-preview
+          cargo install cargo-llvm-cov
+      - name: Coverage (lcov)
+        run: cargo llvm-cov --workspace --lcov --output-path lcov.info
       - name: Upload coverage (lcov)
         if: always()
         uses: actions/upload-artifact@v4
@@ -61,11 +46,11 @@ jobs:
           name: coverage-lcov
           path: lcov.info
 
-      
+      # --- JUnit report ---
       - name: Install nightly + cargo2junit
         run: |
-          rustup toolchain install nightly --profile minimal
-          cargo +nightly install cargo2junit --locked
+          rustup toolchain install nightly
+          cargo install cargo2junit
       - name: Tests → JUnit
         run: cargo +nightly test --all -- -Z unstable-options --format json | cargo2junit > junit.xml
       - name: Upload JUnit
@@ -96,17 +81,34 @@ jobs:
             fuzz/corpus/frame_decode
             fuzz/artifacts/frame_decode
 
+  # Gate Renode job on presence of renode/smoke.resc
+  check-renode:
+    runs-on: ubuntu-latest
+    outputs:
+      smoke_present: ${{ steps.chk.outputs.present }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: chk
+        run: |
+          if [ -f renode/smoke.resc ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Run Renode inside Docker so checkout/artifacts work on the host runner
   renode-smoke:
     needs: [check-renode]
     if: ${{ needs.check-renode.outputs.smoke_present == 'true' }}
     runs-on: ubuntu-latest
-    container: antmicro/renode:latest
     steps:
       - uses: actions/checkout@v4
-      - name: Run Renode smoke
+      - name: Run Renode smoke in Docker
         run: |
-          echo "Renode smoke placeholder; replace later"
-          renode -P -e "mach create; quit" | tee renode.log
+          docker run --rm \
+            -v "${{ github.workspace }}:/work" \
+            -w /work antmicro/renode:latest \
+            bash -lc 'renode -P -e "mach create; quit" | tee renode.log'
       - name: Upload Renode log
         if: always()
         uses: actions/upload-artifact@v4
