@@ -16,7 +16,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy, rustfmt
+          components: clippy, rustfmt, llvm-tools-preview
 
       - uses: Swatinem/rust-cache@v2
 
@@ -32,46 +32,52 @@ jobs:
       - name: Clippy (deny warnings)
         run: cargo clippy --all-targets -- -D warnings
 
-      # --- Coverage (lcov) ---
-      - name: Install llvm-tools + cargo-llvm-cov
-        run: |
-          rustup component add llvm-tools-preview
-          cargo install cargo-llvm-cov
-      - name: Coverage (lcov)
-        run: cargo llvm-cov --workspace --lcov --output-path lcov.info
-      - name: Upload coverage (lcov)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-lcov
-          path: lcov.info
+      # -------- JUnit test report --------
+      - name: Install cargo2junit
+        run: cargo install cargo2junit
 
-      # --- JUnit report ---
-      - name: Install nightly + cargo2junit
-        run: |
-          rustup toolchain install nightly
-          cargo install cargo2junit
-      - name: Tests → JUnit
-        run: cargo +nightly test --all -- -Z unstable-options --format json | cargo2junit > junit.xml
+      - name: Tests → JUnit XML
+        # --format json is stable; no -Z flags needed
+        run: cargo test --all -- --format json | cargo2junit > target/junit.xml
+
       - name: Upload JUnit
-        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: junit
-          path: junit.xml
+          path: target/junit.xml
+
+      # -------- Coverage (lcov) --------
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Coverage (lcov)
+        run: cargo llvm-cov --lcov --output-path target/lcov.info
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: target/lcov.info
 
   fuzz-smoke:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Install deps
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
+
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz
+
       - name: Run fuzz smoke (20s)
         run: cargo +nightly fuzz run frame_decode -- -max_total_time=20 -print_final_stats=1
+
       - name: Upload fuzz artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -81,20 +87,16 @@ jobs:
             fuzz/corpus/frame_decode
             fuzz/artifacts/frame_decode
 
-  # Runs only when 'renode/smoke.resc' exists (see section 2)
   renode-smoke:
+    name: Renode smoke
     if: ${{ hashFiles('renode/smoke.resc') != '' }}
     runs-on: ubuntu-latest
-    container: antmicro/renode:latest
     steps:
       - uses: actions/checkout@v4
-      - name: Run Renode smoke
+      - name: Install Renode (portable)
         run: |
-          # minimal headless run (placeholder; replace with your platform later)
-          renode -P -e "mach create; quit" | tee renode.log
-      - name: Upload Renode log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: renode-log
-          path: renode.log
+          sudo apt-get update && sudo apt-get install -y wget unzip
+          wget -q https://github.com/renode/renode/releases/download/v1.15.3/renode-1.15.3.linux-portable.zip -O renode.zip
+          unzip -q renode.zip -d renode_bin
+      - name: Run smoke script
+        run: ./renode_bin/renode/run.sh -e 'i @renode/smoke.resc'
