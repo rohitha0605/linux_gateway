@@ -1,9 +1,9 @@
 name: CI
 on:
   push:
-    branches: [main]
+    branches: [ "main" ]
   pull_request:
-    branches: [main]
+    branches: [ "main" ]
 
 jobs:
   build-test:
@@ -16,7 +16,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy, rustfmt   # <-- must be a string, not [clippy, rustfmt]
+          components: clippy, rustfmt
 
       - uses: Swatinem/rust-cache@v2
 
@@ -32,24 +32,46 @@ jobs:
       - name: Clippy (deny warnings)
         run: cargo clippy --all-targets -- -D warnings
 
+      # --- Coverage (lcov) ---
+      - name: Install llvm-tools + cargo-llvm-cov
+        run: |
+          rustup component add llvm-tools-preview
+          cargo install cargo-llvm-cov
+      - name: Coverage (lcov)
+        run: cargo llvm-cov --workspace --lcov --output-path lcov.info
+      - name: Upload coverage (lcov)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: lcov.info
+
+      # --- JUnit report ---
+      - name: Install nightly + cargo2junit
+        run: |
+          rustup toolchain install nightly
+          cargo install cargo2junit
+      - name: Tests → JUnit
+        run: cargo +nightly test --all -- -Z unstable-options --format json | cargo2junit > junit.xml
+      - name: Upload JUnit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit
+          path: junit.xml
+
   fuzz-smoke:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Install deps
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
-
       - uses: dtolnay/rust-toolchain@nightly
-
       - uses: Swatinem/rust-cache@v2
-
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz
-
       - name: Run fuzz smoke (20s)
         run: cargo +nightly fuzz run frame_decode -- -max_total_time=20 -print_final_stats=1
-
       - name: Upload fuzz artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -58,3 +80,21 @@ jobs:
           path: |
             fuzz/corpus/frame_decode
             fuzz/artifacts/frame_decode
+
+  # Runs only when 'renode/smoke.resc' exists (see section 2)
+  renode-smoke:
+    if: ${{ hashFiles('renode/smoke.resc') != '' }}
+    runs-on: ubuntu-latest
+    container: antmicro/renode:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Renode smoke
+        run: |
+          # minimal headless run (placeholder; replace with your platform later)
+          renode -P -e "mach create; quit" | tee renode.log
+      - name: Upload Renode log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: renode-log
+          path: renode.log
