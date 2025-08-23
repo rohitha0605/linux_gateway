@@ -121,3 +121,28 @@ pub fn gen_trace_header() -> proto::rpmsg::calc::v1::TraceHeader {
         ts_ns,
     }
 }
+
+// Return encoded CalcRequest plus trace id+timestamp
+pub fn encode_calc_request_with_trace(a: u32, b: u32) -> (Vec<u8>, Vec<u8>, u64) {
+    let trace = gen_trace_header();
+    let req = proto::rpmsg::calc::v1::CalcRequest {
+        a,
+        b,
+        trace: Some(trace.clone()),
+    };
+
+    let mut payload = Vec::with_capacity(req.encoded_len());
+    req.encode(&mut payload).expect("encode request");
+
+    let crc = crc32(&payload);
+
+    let mut frame = Vec::with_capacity(10 + payload.len());
+    frame.extend_from_slice(&SYNC.to_be_bytes());
+    frame.push(VER);
+    frame.push(MsgType::CalcReq as u8);
+    frame.extend_from_slice(&(payload.len() as u16).to_be_bytes());
+    frame.extend_from_slice(&crc.to_be_bytes());
+    frame.extend_from_slice(&payload);
+
+    (frame, trace.id, trace.ts_ns)
+}
