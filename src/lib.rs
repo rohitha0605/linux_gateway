@@ -91,7 +91,10 @@ pub fn decode_calc_response(
 }
 
 pub fn encode_calc_response(sum: u32) -> Vec<u8> {
-    let resp = proto::rpmsg::calc::v1::CalcResponse { sum, trace: None };
+    let resp = proto::rpmsg::calc::v1::CalcResponse {
+        sum,
+        trace: Some(gen_trace_header()),
+    };
     let mut payload = Vec::with_capacity(8);
     resp.encode(&mut payload).expect("encode");
 

@@ -19,7 +19,7 @@ fn main() {
     if args.len() == 3 && args[1] == "make_resp" {
         let sum: u32 = args[2].parse().expect("sum");
         let frame = encode_calc_response(sum);
-        println!("FRAME_HEX={}", hex::encode_upper(frame));
+        println!("{}", hex::encode_upper(frame));
         return;
     }
 
