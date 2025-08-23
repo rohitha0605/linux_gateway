@@ -146,14 +146,8 @@ async fn decode_calc_http(Json(req): Json<DecodeReq>) -> Json<DecodeResp> {
         .ok()
         .and_then(|d| linux_gateway::decode_calc_response(&d).ok())
     {
-        Some(resp) => Json(DecodeResp {
-            sum: Some(resp.sum),
-            error: None,
-        }),
-        None => Json(DecodeResp {
-            sum: None,
-            error: Some("decode error".into()),
-        }),
+        Some(resp) => { let (trace_id_hex, ts_ns) = match resp.trace { Some(t) => (Some(hex::encode_upper(t.id)), Some(t.ts_ns)), None => (None, None), }; Json(DecodeResp { sum: Some(resp.sum), error: None, trace_id_hex, ts_ns }) },
+        None => Json(DecodeResp { sum: None, error: Some("decode error".into()), trace_id_hex: None, ts_ns: None }),
     }
 }
 
