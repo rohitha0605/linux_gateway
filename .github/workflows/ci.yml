@@ -1,9 +1,26 @@
 name: CI
 on:
   push:
+    branches: [ "main" ]
   pull_request:
+    branches: [ "main" ]
 
 jobs:
+  check-renode:
+    runs-on: ubuntu-latest
+    outputs:
+      smoke_present: ${{ steps.chk.outputs.present }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: chk
+        shell: bash
+        run: |
+          if [ -f renode/smoke.resc ]; then
+            echo "present=true"  >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build-test:
     runs-on: ubuntu-latest
     steps:
@@ -29,40 +46,41 @@ jobs:
       - name: Build
         run: cargo build --verbose
 
-      - name: Tests
+      - name: Test
         run: cargo test --all --verbose
 
+    
       - name: Coverage (lcov)
         run: |
           cargo install cargo-llvm-cov --locked
-          cargo llvm-cov --lcov --output-path lcov.info
-
-      - name: Upload coverage
+          cargo llvm-cov --workspace --lcov --output-path lcov.info
+      - name: Upload coverage (lcov)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: lcov.info
+          name: coverage-lcov
           path: lcov.info
 
-      - name: JUnit report
+      
+      - name: Install nightly + cargo2junit
         run: |
           rustup toolchain install nightly --profile minimal
           cargo +nightly install cargo2junit --locked
-          cargo +nightly test --all -- -Z unstable-options --format json | cargo2junit > junit.xml
-
+      - name: Tests → JUnit
+        run: cargo +nightly test --all -- -Z unstable-options --format json | cargo2junit > junit.xml
       - name: Upload JUnit
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: junit.xml
+          name: junit
           path: junit.xml
 
   fuzz-smoke:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: System deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y protobuf-compiler
+      - name: Install deps
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
       - name: Install cargo-fuzz
@@ -79,13 +97,19 @@ jobs:
             fuzz/artifacts/frame_decode
 
   renode-smoke:
-    if: ${{ hashFiles('renode/smoke.resc') != '' }}
-    continue-on-error: true
+    needs: [check-renode]
+    if: ${{ needs.check-renode.outputs.smoke_present == 'true' }}
     runs-on: ubuntu-latest
+    container: antmicro/renode:latest
     steps:
       - uses: actions/checkout@v4
-      - name: Show script (placeholder)
+      - name: Run Renode smoke
         run: |
-          echo "Renode smoke placeholder:"
-          sed -n '1,200p' renode/smoke.resc
-          echo "Skipping actual Renode run for now."
+          echo "Renode smoke placeholder; replace later"
+          renode -P -e "mach create; quit" | tee renode.log
+      - name: Upload Renode log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: renode-log
+          path: renode.log
