@@ -64,14 +64,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Install deps
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
       - uses: dtolnay/rust-toolchain@nightly
+
       - uses: Swatinem/rust-cache@v2
+
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz
+
       - name: Run fuzz smoke (20s)
         run: cargo +nightly fuzz run frame_decode -- -max_total_time=20 -print_final_stats=1
+
       - name: Upload fuzz artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -81,7 +87,6 @@ jobs:
             fuzz/corpus/frame_decode
             fuzz/artifacts/frame_decode
 
-  # Gate Renode job on presence of renode/smoke.resc
   check-renode:
     runs-on: ubuntu-latest
     outputs:
@@ -96,7 +101,6 @@ jobs:
             echo "present=false" >> "$GITHUB_OUTPUT"
           fi
 
-  # Run Renode inside Docker so checkout/artifacts work on the host runner
   renode-smoke:
     needs: [check-renode]
     if: ${{ needs.check-renode.outputs.smoke_present == 'true' }}
@@ -108,7 +112,7 @@ jobs:
           docker run --rm \
             -v "${{ github.workspace }}:/work" \
             -w /work antmicro/renode:latest \
-            bash -lc 'renode -P -e "mach create; quit" | tee renode.log'
+            sh -lc 'renode --console -e "mach create; quit"' | tee renode.log
       - name: Upload Renode log
         if: always()
         uses: actions/upload-artifact@v4
