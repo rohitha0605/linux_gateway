@@ -9,5 +9,6 @@ static inline void trace_set(rpmsg_calc_v1_TraceHeader *th,
                              uint64_t ts_ns)
 {
     memcpy(th->id, id16, 16);
+    memcpy(th->span_id, span8, 8);
     th->ts_ns = ts_ns;
 }

@@ -22,7 +22,7 @@ bool calc_handle_request(const uint8_t *in, size_t in_len,
 
     if (req.has_trace) {
         resp.has_trace = true;
-        trace_set(&resp.trace, req.trace.id, req.trace.ts_ns); // echo back
+        trace_set(&resp.trace, req.trace.id, req.trace.span_id, req.trace.ts_ns); // echo back
     }
 
     pb_ostream_t os = pb_ostream_from_buffer(out, out_cap);

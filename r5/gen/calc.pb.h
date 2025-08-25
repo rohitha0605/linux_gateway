@@ -11,9 +11,9 @@
 
 /* Struct definitions */
 typedef struct _rpmsg_calc_v1_TraceHeader {
-    /* 16 random bytes (trace id) + optional timestamp in ns */
-    pb_byte_t id[16]; /* 16 bytes */
-    uint64_t ts_ns; /* 0 if unavailable */
+    pb_callback_t id; /* 16 bytes trace_id */
+    uint64_t ts_ns; /* timestamp (ns) */
+    pb_callback_t span_id; /* 8 bytes span_id */
 } rpmsg_calc_v1_TraceHeader;
 
 typedef struct _rpmsg_calc_v1_CalcRequest {
@@ -35,16 +35,17 @@ extern "C" {
 #endif
 
 /* Initializer values for message structs */
-#define rpmsg_calc_v1_TraceHeader_init_default   {{0}, 0}
+#define rpmsg_calc_v1_TraceHeader_init_default   {{{NULL}, NULL}, 0, {{NULL}, NULL}}
 #define rpmsg_calc_v1_CalcRequest_init_default   {0, 0, false, rpmsg_calc_v1_TraceHeader_init_default}
 #define rpmsg_calc_v1_CalcResponse_init_default  {0, false, rpmsg_calc_v1_TraceHeader_init_default}
-#define rpmsg_calc_v1_TraceHeader_init_zero      {{0}, 0}
+#define rpmsg_calc_v1_TraceHeader_init_zero      {{{NULL}, NULL}, 0, {{NULL}, NULL}}
 #define rpmsg_calc_v1_CalcRequest_init_zero      {0, 0, false, rpmsg_calc_v1_TraceHeader_init_zero}
 #define rpmsg_calc_v1_CalcResponse_init_zero     {0, false, rpmsg_calc_v1_TraceHeader_init_zero}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define rpmsg_calc_v1_TraceHeader_id_tag         1
 #define rpmsg_calc_v1_TraceHeader_ts_ns_tag      2
+#define rpmsg_calc_v1_TraceHeader_span_id_tag    3
 #define rpmsg_calc_v1_CalcRequest_a_tag          1
 #define rpmsg_calc_v1_CalcRequest_b_tag          2
 #define rpmsg_calc_v1_CalcRequest_trace_tag      3
@@ -53,9 +54,10 @@ extern "C" {
 
 /* Struct field encoding specification for nanopb */
 #define rpmsg_calc_v1_TraceHeader_FIELDLIST(X, a) \
-X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, id,                1) \
-X(a, STATIC,   SINGULAR, UINT64,   ts_ns,             2)
-#define rpmsg_calc_v1_TraceHeader_CALLBACK NULL
+X(a, CALLBACK, SINGULAR, BYTES,    id,                1) \
+X(a, STATIC,   SINGULAR, UINT64,   ts_ns,             2) \
+X(a, CALLBACK, SINGULAR, BYTES,    span_id,           3)
+#define rpmsg_calc_v1_TraceHeader_CALLBACK pb_default_field_callback
 #define rpmsg_calc_v1_TraceHeader_DEFAULT NULL
 
 #define rpmsg_calc_v1_CalcRequest_FIELDLIST(X, a_) \
@@ -83,10 +85,9 @@ extern const pb_msgdesc_t rpmsg_calc_v1_CalcResponse_msg;
 #define rpmsg_calc_v1_CalcResponse_fields &rpmsg_calc_v1_CalcResponse_msg
 
 /* Maximum encoded size of messages (where known) */
-#define RPMSG_CALC_V1_CALC_PB_H_MAX_SIZE         rpmsg_calc_v1_CalcRequest_size
-#define rpmsg_calc_v1_CalcRequest_size           43
-#define rpmsg_calc_v1_CalcResponse_size          37
-#define rpmsg_calc_v1_TraceHeader_size           29
+/* rpmsg_calc_v1_TraceHeader_size depends on runtime parameters */
+/* rpmsg_calc_v1_CalcRequest_size depends on runtime parameters */
+/* rpmsg_calc_v1_CalcResponse_size depends on runtime parameters */
 
 #ifdef __cplusplus
 } /* extern "C" */
