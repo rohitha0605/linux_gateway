@@ -25,7 +25,10 @@ fn main() {
     }
 
     // make_resp <sum>  -> hex frame for CalcResponse
-    eprintln!("  {} make_req_trace <a> <b>  # prints CalcRequest with TraceHeader HEX", args[0]);
+    eprintln!(
+        "  {} make_req_trace <a> <b>  # prints CalcRequest with TraceHeader HEX",
+        args[0]
+    );
     if args.len() == 3 && args[1] == "make_resp" {
         let sum: u32 = args[2].parse().expect("sum");
         let frame = encode_calc_response(sum);
@@ -48,7 +51,11 @@ fn main() {
         let b: u32 = args[3].parse().expect("b");
         let (frame, id_bytes, ts_ns) = encode_calc_request_with_trace(a, b);
         println!("{}", hex::encode_upper(frame)); // stdout is just HEX
-        eprintln!("TRACE_ID_HEX={} TS_NS={}", hex::encode_upper(id_bytes), ts_ns); // extras on stderr
+        eprintln!(
+            "TRACE_ID_HEX={} TS_NS={}",
+            hex::encode_upper(id_bytes),
+            ts_ns
+        ); // extras on stderr
         return;
     }
     // rpmsg-bounce <HEX> [DEV=/dev/rpmsg0]
@@ -92,7 +99,10 @@ fn main() {
 
     // --decode=HEX -> response decode
     if args.len() == 2 && args[1].starts_with("--decode=") {
-    eprintln!("  {} --decode-req=HEX      # decodes a CalcRequest frame", args[0]);
+        eprintln!(
+            "  {} --decode-req=HEX      # decodes a CalcRequest frame",
+            args[0]
+        );
         let hex = &args[1]["--decode=".len()..];
         let data = hex::decode(hex).expect("hex");
         match decode_calc_response(&data) {
@@ -111,7 +121,10 @@ fn main() {
                     Some(t) => (Some(hex::encode_upper(&t.id)), Some(t.ts_ns)),
                     None => (None, None),
                 };
-                println!("A={}, B={}, TRACE_ID={:?}, TS_NS={:?}", req.a, req.b, trace_id_hex, ts_ns);
+                println!(
+                    "A={}, B={}, TRACE_ID={:?}, TS_NS={:?}",
+                    req.a, req.b, trace_id_hex, ts_ns
+                );
             }
             Err(e) => println!("DECODE_REQ_ERROR={e}"),
         }
@@ -124,7 +137,10 @@ fn main() {
         "  {} <a> <b>               # prints CalcRequest frame HEX",
         args[0]
     );
-    eprintln!("  {} make_req <a> <b>       # prints CalcRequest frame HEX", args[0]);
+    eprintln!(
+        "  {} make_req <a> <b>       # prints CalcRequest frame HEX",
+        args[0]
+    );
     eprintln!(
         "  {} --decode=HEX          # decodes a CalcResponse frame",
         args[0]
@@ -217,7 +233,9 @@ async fn decode_calc_http(Json(req): Json<DecodeReq>) -> Json<DecodeResp> {
 }
 
 // ---- m2: tracing + jaeger ----
-async fn decode_calc_req_http(axum::Json(req): axum::Json<DecodeReq>) -> axum::Json<DecodeCalcReqResp> {
+async fn decode_calc_req_http(
+    axum::Json(req): axum::Json<DecodeReq>,
+) -> axum::Json<DecodeCalcReqResp> {
     let out = match hex::decode(&req.frame_hex)
         .ok()
         .and_then(|d| linux_gateway::decode_calc_request(&d).ok())
