@@ -114,13 +114,17 @@ pub fn gen_trace_header() -> proto::rpmsg::calc::v1::TraceHeader {
     use rand::RngCore;
     use std::time::{SystemTime, UNIX_EPOCH};
     let mut id = [0u8; 16];
-    rand::thread_rng().fill_bytes(&mut id);
+    let mut span = [0u8; 8];
+    let mut rng = rand::thread_rng();
+    rng.fill_bytes(&mut id);
+    rng.fill_bytes(&mut span);
     let ts_ns = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos() as u64;
     proto::rpmsg::calc::v1::TraceHeader {
         id: id.to_vec(),
+        span_id: span.to_vec(),
         ts_ns,
     }
 }
