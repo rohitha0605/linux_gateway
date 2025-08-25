@@ -1,0 +1,2 @@
+rpmsg.calc.v1.TraceHeader.id max_size:16
+rpmsg.calc.v1.TraceHeader.id fixed_length:true

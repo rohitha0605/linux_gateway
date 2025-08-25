@@ -149,3 +149,25 @@ pub fn encode_calc_request_with_trace(a: u32, b: u32) -> (Vec<u8>, Vec<u8>, u64)
 
     (frame, trace.id, trace.ts_ns)
 }
+
+// ---- request decoder (mirror of decode_calc_response) ----
+pub fn decode_calc_request(
+    frame: &[u8],
+) -> Result<proto::rpmsg::calc::v1::CalcRequest, FrameError> {
+    if frame.len() < 10 { return Err(FrameError::ShortHeader); }
+    if u16::from_be_bytes([frame[0], frame[1]]) != SYNC { return Err(FrameError::BadSync); }
+
+    let _ver = frame[2];
+    let typ = frame[3];
+    let len = u16::from_be_bytes([frame[4], frame[5]]) as usize;
+    let got_crc = u32::from_be_bytes([frame[6], frame[7], frame[8], frame[9]]);
+
+    let need = 10 + len;
+    if frame.len() < need { return Err(FrameError::Length); }
+
+    let payload = &frame[10..need];
+    if crc32(payload) != got_crc { return Err(FrameError::Crc); }
+    if typ != MsgType::CalcReq as u8 { return Err(FrameError::Length); }
+
+    Ok(proto::rpmsg::calc::v1::CalcRequest::decode(payload)?)
+}
