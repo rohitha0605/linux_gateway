@@ -1,0 +1,60 @@
+name: CI Summary
+
+on:
+  workflow_run:
+    workflows: ["CI"]   # must match your main workflow's name exactly
+    types: [completed]
+
+jobs:
+  aggregate:
+    if: github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      checks: write
+
+    steps:
+      - name: Download artifacts from triggering run
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          run_id: ${{ github.event.workflow_run.id }}
+          name: "*"
+          path: artifacts
+          if_no_artifact_found: warn
+
+      - name: Summarize JUnit (and gate on failures)
+        shell: bash
+        run: |
+          f="artifacts/junit/junit.xml"
+          if [ ! -f "$f" ]; then
+            echo "JUnit: not found" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          read T F E S < <(awk -v FS='[=\" ]' '
+            /<testsuite /{
+              for(i=1;i<=NF;i++){
+                if($i=="tests")    T+=$(i+1)
+                if($i=="failures") F+=$(i+1)
+                if($i=="errors")   E+=$(i+1)
+                if($i=="skipped")  S+=$(i+1)
+              }
+            }
+            END{ if(!T)T=0;if(!F)F=0;if(!E)E=0;if(!S)S=0; printf("%d %d %d %d",T,F,E,S) }
+          ' "$f")
+          echo "JUnit: $T tests, $F failures, $E errors, $S skipped" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$F" -gt 0 ] || [ "$E" -gt 0 ]; then
+            exit 1
+          fi
+
+      - name: Coverage summary (+ gate at 10%)
+        shell: bash
+        run: |
+          f="artifacts/coverage-lcov/lcov.info"
+          if [ ! -f "$f" ]; then
+            echo "Coverage: not found" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          pct=$(awk -F, '/^DA:/{t++; if ($2>0) c++} END { if(t) printf("%.2f",100*c/t); else print 0 }' "$f")
+          echo "Line coverage: ${pct}%" | tee -a "$GITHUB_STEP_SUMMARY"
+          awk -v p="$pct" 'BEGIN{ exit (p>=10)?0:1 }'
