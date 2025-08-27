@@ -12,4 +12,4 @@
 ### Build & run the HTTP server
 ```bash
 cargo build
-RUST_LOG=info cargo run -- serve &
+RUST_LOG=info cargo run -- serve &# touch
