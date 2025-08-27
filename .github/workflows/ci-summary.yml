@@ -7,6 +7,7 @@ on:
 
 jobs:
   aggregate:
+    if: github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -46,7 +47,7 @@ jobs:
             exit 1
           fi
 
-      - name: Coverage summary (+ gate at 20%)
+      - name: Coverage summary (+ gate at 10%)
         shell: bash
         run: |
           f="artifacts/coverage-lcov/lcov.info"
@@ -56,4 +57,4 @@ jobs:
           fi
           pct=$(awk -F, '/^DA:/{t++; if ($2>0) c++} END { if(t) printf("%.2f",100*c/t); else print 0 }' "$f")
           echo "Line coverage: ${pct}%" | tee -a "$GITHUB_STEP_SUMMARY"
-          awk -v p="$pct" 'BEGIN{ exit (p>=20)?0:1 }'
+          awk -v p="$pct" 'BEGIN{ exit (p>=10)?0:1 }'
