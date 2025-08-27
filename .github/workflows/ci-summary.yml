@@ -1,0 +1,49 @@
+name: CI Summary
+
+on:
+  workflow_run:
+    workflows: ["CI"]         # ← exact name of your main workflow
+    types: [completed]
+
+jobs:
+  aggregate:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      checks: write
+    steps:
+      - name: Download artifacts from triggering run
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          run_id: ${{ github.event.workflow_run.id }}
+          name: "*"                 # download all artifacts
+          path: artifacts           # ends up like artifacts/junit/junit.xml, artifacts/coverage-lcov/lcov.info
+          if_no_artifact_found: warn
+
+      - name: Summarize JUnit (and gate on failures)
+        run: |
+          python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
+import xml.etree.ElementTree as ET, sys, os
+p = 'artifacts/junit/junit.xml'
+if not os.path.isfile(p):
+    print("JUnit: not found"); sys.exit(0)
+root = ET.parse(p).getroot()
+T=F=E=S=0
+for ts in root.iter('testsuite'):
+    T+=int(ts.get('tests',0)); F+=int(ts.get('failures',0))
+    E+=int(ts.get('errors',0)); S+=int(ts.get('skipped',0))
+print(f"JUnit: {T} tests, {F} failures, {E} errors, {S} skipped")
+sys.exit(1 if F>0 or E>0 else 0)
+PY
+
+      - name: Coverage summary (+ gate at 20%)
+        run: |
+          f="artifacts/coverage-lcov/lcov.info"
+          if [ ! -f "$f" ]; then
+            echo "Coverage: not found" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          pct=$(awk -F, '/^DA:/{t++; if ($2>0) c++} END { if(t) printf("%.2f",100*c/t); else print 0 }' "$f")
+          echo "Line coverage: ${pct}%" | tee -a "$GITHUB_STEP_SUMMARY"
+          awk -v p="$pct" 'BEGIN{ exit (p>=20)?0:1 }'
