@@ -119,3 +119,45 @@ jobs:
         with:
           name: renode-log
           path: renode.log
+
+      - name: Upload JUnit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit
+          path: |
+            junit.xml
+            target/nextest/ci/junit.xml
+            **/junit.xml
+          if-no-files-found: warn
+
+      - name: Upload coverage (lcov)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: |
+            lcov.info
+            target/coverage/lcov.info
+            **/lcov.info
+          if-no-files-found: warn
+
+      - name: Upload fuzz corpus
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-output
+          path: |
+            fuzz/corpus/**
+            **/corpus/**
+          if-no-files-found: warn
+
+      - name: Upload Renode log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: renode-log
+          path: |
+            renode.log
+            **/renode.log
+          if-no-files-found: warn
