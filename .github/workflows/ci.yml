@@ -16,6 +16,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
+          overwrite: true
           components: clippy, rustfmt
 
       - uses: Swatinem/rust-cache@v2
@@ -43,7 +44,8 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-lcov
+          overwrite: true
+          name: coverage-lcov-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: lcov.info
 
       # --- JUnit report ---
@@ -57,7 +59,8 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: junit
+          overwrite: true
+          name: junit-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: junit.xml
 
   fuzz-smoke:
@@ -82,7 +85,8 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: fuzz-output
+          overwrite: true
+          name: fuzz-output-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             fuzz/corpus/frame_decode
             fuzz/artifacts/frame_decode
@@ -117,14 +121,16 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: renode-log
+          overwrite: true
+          name: renode-log-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: renode.log
 
       - name: Upload JUnit
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: junit
+          overwrite: true
+          name: junit-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             junit.xml
             target/nextest/ci/junit.xml
@@ -135,7 +141,8 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-lcov
+          overwrite: true
+          name: coverage-lcov-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             lcov.info
             target/coverage/lcov.info
@@ -146,7 +153,8 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: fuzz-output
+          overwrite: true
+          name: fuzz-output-b-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             fuzz/corpus/**
             **/corpus/**
@@ -156,7 +164,8 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: renode-log
+          overwrite: true
+          name: renode-log-b-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             renode.log
             **/renode.log
