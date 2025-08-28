@@ -6,8 +6,7 @@ on:
 
 jobs:
   aggregate:
-    # Only run when the event really is workflow_run on main.
-    if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'main' }}
+    if: github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -22,37 +21,38 @@ jobs:
           path: artifacts
           if_no_artifact_found: warn
 
-      - name: List what we downloaded (debug)
-        run: |
-          echo "::group::tree artifacts"
-          (command -v tree >/dev/null || sudo apt-get update && sudo apt-get install -y tree)
-          tree -a artifacts || true
-          echo "::endgroup::"
-
-      - name: JUnit summary
+      - name: JUnit summary (fail job on failures/errors)
         shell: bash
         run: |
+          set -euo pipefail
           python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
-import os, sys, xml.etree.ElementTree as ET
-base='artifacts'
-paths=[os.path.join(r,f) for r,_,fs in os.walk(base) for f in fs if f=='junit.xml']
-print(f"Found {len(paths)} junit.xml files")
-if not paths:
-    print("JUnit: not found"); sys.exit(0)
-T=F=E=S=0
-for p in paths:
-    try:
-        root=ET.parse(p).getroot()
-    except Exception:
-        continue
-    for ts in root.iter('testsuite'):
-        T+=int(ts.get('tests',0) or 0)
-        F+=int(ts.get('failures',0) or 0)
-        E+=int(ts.get('errors',0) or 0)
-        S+=int(ts.get('skipped',0) or 0)
-print(f"JUnit: {T} tests, {F} failures, {E} errors, {S} skipped")
-sys.exit(1 if F>0 or E>0 else 0)
-PY
+          import os, sys, xml.etree.ElementTree as ET
+
+          base = 'artifacts'
+          paths = []
+          for r, _, fs in os.walk(base):
+              for fn in fs:
+                  if fn == 'junit.xml':
+                      paths.append(os.path.join(r, fn))
+
+          if not paths:
+              print("JUnit: not found"); sys.exit(0)
+
+          T = F = E = S = 0
+          for p in paths:
+              try:
+                  root = ET.parse(p).getroot()
+              except Exception:
+                  continue
+              for ts in root.iter('testsuite'):
+                  T += int(ts.get('tests', 0) or 0)
+                  F += int(ts.get('failures', 0) or 0)
+                  E += int(ts.get('errors', 0) or 0)
+                  S += int(ts.get('skipped', 0) or 0)
+
+          print(f"JUnit: {T} tests, {F} failures, {E} errors, {S} skipped")
+          sys.exit(1 if F > 0 or E > 0 else 0)
+          PY
 
       - name: Coverage summary
         shell: bash
@@ -62,6 +62,6 @@ PY
             echo "Coverage: not found" | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          pct=$(awk -F, '/^DA:/{t++; if ($2>0) c++} END { if(t) printf("%.2f",100*c/t); else print 0 }' "$f")
+          pct=$(awk -F, '/^DA:/{t++; if ($2>0) c++} END{ if(t) printf("%.2f",100*c/t); else print 0 }' "$f")
           echo "Line coverage: ${pct}%" | tee -a "$GITHUB_STEP_SUMMARY"
           awk -v p="$pct" 'BEGIN{ exit (p>=10)?0:1 }'
