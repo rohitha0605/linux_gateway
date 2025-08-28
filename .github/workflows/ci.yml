@@ -138,7 +138,6 @@ jobs:
             target/nextest/ci/junit.xml
             **/junit.xml
           if-no-files-found: warn
-          overwrite: true
 
       - name: Upload coverage (lcov)
         if: ${{ always() }}
@@ -151,7 +150,6 @@ jobs:
             target/coverage/lcov.info
             **/lcov.info
           if-no-files-found: warn
-          overwrite: true
 
       - name: Upload fuzz corpus
         if: ${{ always() }}
@@ -163,7 +161,6 @@ jobs:
             fuzz/corpus/**
             **/corpus/**
           if-no-files-found: warn
-          overwrite: true
 
       - name: Upload Renode log
         if: ${{ always() }}
@@ -175,4 +172,3 @@ jobs:
             renode.log
             **/renode.log
           if-no-files-found: warn
-          overwrite: true
