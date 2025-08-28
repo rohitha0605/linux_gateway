@@ -40,7 +40,7 @@ jobs:
       - name: Coverage (lcov)
         run: cargo llvm-cov --workspace --lcov --output-path lcov.info
       - name: Upload coverage (lcov)
-        if: always()
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: coverage-lcov
@@ -54,7 +54,7 @@ jobs:
       - name: Tests → JUnit
         run: cargo +nightly test --all -- -Z unstable-options --format json | cargo2junit > junit.xml
       - name: Upload JUnit
-        if: always()
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: junit
@@ -79,7 +79,7 @@ jobs:
         run: cargo +nightly fuzz run frame_decode -- -max_total_time=20 -print_final_stats=1
 
       - name: Upload fuzz artifacts
-        if: always()
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: fuzz-output
@@ -114,14 +114,14 @@ jobs:
             -w /work antmicro/renode:latest \
             sh -lc 'renode --console -e "mach create; quit"' | tee renode.log
       - name: Upload Renode log
-        if: always()
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: renode-log
           path: renode.log
 
       - name: Upload JUnit
-        if: always()
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: junit
@@ -132,7 +132,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload coverage (lcov)
-        if: always()
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: coverage-lcov
@@ -143,7 +143,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload fuzz corpus
-        if: always()
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: fuzz-output
@@ -153,7 +153,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload Renode log
-        if: always()
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: renode-log
