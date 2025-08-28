@@ -3,41 +3,42 @@ on:
   workflow_run:
     workflows: ["CI"]
     types: [completed]
-  workflow_dispatch: {}
-
-permissions:
-  actions: read
-  contents: read
 
 jobs:
   aggregate:
-    if: github.event.workflow_run.head_branch == 'main'
+    # Only run when the event really is workflow_run on main.
+    if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'main' }}
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      checks: write
 
     steps:
       - name: Download artifacts from triggering run
         uses: dawidd6/action-download-artifact@v2
         with:
           run_id: ${{ github.event.workflow_run.id }}
-          # omit 'name' to download ALL artifacts from that run
-          # or use: pattern: '*'
           path: artifacts
           if_no_artifact_found: warn
 
-      - name: JUnit summary (fail job on failures/errors)
+      - name: List what we downloaded (debug)
+        run: |
+          echo "::group::tree artifacts"
+          (command -v tree >/dev/null || sudo apt-get update && sudo apt-get install -y tree)
+          tree -a artifacts || true
+          echo "::endgroup::"
+
+      - name: JUnit summary
         shell: bash
         run: |
-          set -euo pipefail
           python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
 import os, sys, xml.etree.ElementTree as ET
-paths=[]
-for r,_,fs in os.walk('artifacts'):
-    for fn in fs:
-        if fn=='junit.xml':
-            paths.append(os.path.join(r,fn))
+base='artifacts'
+paths=[os.path.join(r,f) for r,_,fs in os.walk(base) for f in fs if f=='junit.xml']
+print(f"Found {len(paths)} junit.xml files")
 if not paths:
     print("JUnit: not found"); sys.exit(0)
-
 T=F=E=S=0
 for p in paths:
     try:
@@ -53,17 +54,14 @@ print(f"JUnit: {T} tests, {F} failures, {E} errors, {S} skipped")
 sys.exit(1 if F>0 or E>0 else 0)
 PY
 
-      - name: Coverage summary (aggregate all lcovs)
+      - name: Coverage summary
         shell: bash
         run: |
-          set -euo pipefail
-          shopt -s globstar nullglob
-          files=(artifacts/**/lcov.info)
-          if [ ${#files[@]} -eq 0 ]; then
-            echo "Line coverage: n/a" | tee -a "$GITHUB_STEP_SUMMARY"
+          f=$(find artifacts -type f -name lcov.info | head -n1)
+          if [ -z "$f" ]; then
+            echo "Coverage: not found" | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          awk -F, '/^DA:/{t++; if ($2>0) c++}
-                   END{ if(t) printf("Line coverage: %.2f%% (%d/%d)\n",100*c/t,c,t);
-                        else print "Line coverage: n/a" }' "${files[@]}" \
-            | tee -a "$GITHUB_STEP_SUMMARY"
+          pct=$(awk -F, '/^DA:/{t++; if ($2>0) c++} END { if(t) printf("%.2f",100*c/t); else print 0 }' "$f")
+          echo "Line coverage: ${pct}%" | tee -a "$GITHUB_STEP_SUMMARY"
+          awk -v p="$pct" 'BEGIN{ exit (p>=10)?0:1 }'
