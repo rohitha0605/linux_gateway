@@ -26,7 +26,7 @@ jobs:
       - name: Summarize JUnit (and gate on failures)
         shell: bash
         run: |
-          f="artifacts/junit/junit.xml"
+          f=$(find artifacts -type f -name junit.xml | head -n1)
           if [ ! -f "$f" ]; then
             echo "JUnit: not found" | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
@@ -50,7 +50,7 @@ jobs:
       - name: Coverage summary (+ gate at 10%)
         shell: bash
         run: |
-          f="artifacts/coverage-lcov/lcov.info"
+          f=$(find artifacts -type f -name lcov.info | head -n1)
           if [ ! -f "$f" ]; then
             echo "Coverage: not found" | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
