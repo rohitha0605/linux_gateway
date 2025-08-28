@@ -24,19 +24,30 @@ jobs:
       - name: JUnit summary
         shell: bash
         run: |
-          shopt -s nullglob
-          mapfile -t files < <(find artifacts -type f -name junit.xml)
-          if [ ${#files[@]} -eq 0 ]; then
-            echo "JUnit: not found" | tee -a "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          T=0; F=0; E=0; S=0
-          for f in "${files[@]}"; do
-            read t ff ee ss < <(awk -v FS='[=" ]' '/<testsuite /{for(i=1;i<=NF;i++){if($i=="tests")tt+=$(i+1);if($i=="failures")ff+=$(i+1);if($i=="errors")ee+=$(i+1);if($i=="skipped")ss+=$(i+1)}}END{printf("%d %d %d %d",tt+0,ff+0,ee+0,ss+0)}' "$f")
-            T=$((T+t)); F=$((F+ff)); E=$((E+ee)); S=$((S+ss))
-          done
-          echo "JUnit: $T tests, $F failures, $E errors, $S skipped" | tee -a "$GITHUB_STEP_SUMMARY"
-          if [ "$F" -gt 0 ] || [ "$E" -gt 0 ]; then exit 1; fi
+          python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
+import os, sys, xml.etree.ElementTree as ET
+base='artifacts'
+paths=[]
+for r,_,fs in os.walk(base):
+    for fn in fs:
+        if fn=='junit.xml':
+            paths.append(os.path.join(r,fn))
+if not paths:
+    print("JUnit: not found"); sys.exit(0)
+T=F=E=S=0
+for p in paths:
+    try:
+        root=ET.parse(p).getroot()
+    except Exception:
+        continue
+    for ts in root.iter('testsuite'):
+        T+=int(ts.get('tests',0) or 0)
+        F+=int(ts.get('failures',0) or 0)
+        E+=int(ts.get('errors',0) or 0)
+        S+=int(ts.get('skipped',0) or 0)
+print(f"JUnit: {T} tests, {F} failures, {E} errors, {S} skipped")
+sys.exit(1 if F>0 or E>0 else 0)
+PY
       - name: Coverage summary
         shell: bash
         run: |
@@ -45,6 +56,6 @@ jobs:
             echo "Coverage: not found" | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          pct=$(awk -F, '/^DA:/{t++; if ($2>0) c++} END{if(t) printf("%.2f",100*c/t); else print 0}' "$f")
+          pct=$(awk -F, '/^DA:/{t++; if ($2>0) c++} END { if(t) printf("%.2f",100*c/t); else print 0 }' "$f")
           echo "Line coverage: ${pct}%" | tee -a "$GITHUB_STEP_SUMMARY"
-        continue-on-error: true
+          awk -v p="$pct" 'BEGIN{ exit (p>=10)?0:1 }'
