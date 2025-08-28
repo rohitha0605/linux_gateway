@@ -5,6 +5,8 @@ on:
   pull_request:
     branches: [ "main" ]
 
+env:
+  ARTIFACT_SUFFIX: ${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
 jobs:
   build-test:
     runs-on: ubuntu-latest
@@ -136,6 +138,7 @@ jobs:
             target/nextest/ci/junit.xml
             **/junit.xml
           if-no-files-found: warn
+          overwrite: true
 
       - name: Upload coverage (lcov)
         if: ${{ always() }}
@@ -148,6 +151,7 @@ jobs:
             target/coverage/lcov.info
             **/lcov.info
           if-no-files-found: warn
+          overwrite: true
 
       - name: Upload fuzz corpus
         if: ${{ always() }}
@@ -159,6 +163,7 @@ jobs:
             fuzz/corpus/**
             **/corpus/**
           if-no-files-found: warn
+          overwrite: true
 
       - name: Upload Renode log
         if: ${{ always() }}
@@ -170,3 +175,4 @@ jobs:
             renode.log
             **/renode.log
           if-no-files-found: warn
+          overwrite: true
