@@ -28,7 +28,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY' > summary.txt
+          python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
 import os, sys, xml.etree.ElementTree as ET
 base = 'artifacts'
 paths = []
@@ -37,8 +37,7 @@ for r, _, fs in os.walk(base):
         if fn == 'junit.xml':
             paths.append(os.path.join(r, fn))
 if not paths:
-    print("JUnit: not found")
-    sys.exit(0)
+    print("JUnit: not found"); sys.exit(0)
 T = F = E = S = 0
 for p in paths:
     try:
@@ -53,7 +52,6 @@ for p in paths:
 print(f"JUnit: {T} tests, {F} failures, {E} errors, {S} skipped")
 sys.exit(1 if F > 0 or E > 0 else 0)
 PY
-          cat summary.txt | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Coverage summary (aggregate all lcovs)
         shell: bash
