@@ -12,6 +12,8 @@ jobs:
       actions: read
       contents: read
       checks: write
+    env:
+      COVERAGE_MIN: "10"   
 
     steps:
       - name: Download artifacts from triggering run
@@ -26,35 +28,36 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
-          import os, sys, xml.etree.ElementTree as ET
+import os, sys, xml.etree.ElementTree as ET
 
-          base = 'artifacts'
-          paths = []
-          for r, _, fs in os.walk(base):
-              for fn in fs:
-                  if fn == 'junit.xml':
-                      paths.append(os.path.join(r, fn))
+base = 'artifacts'
+paths = []
+for r, _, fs in os.walk(base):
+    for fn in fs:
+        if fn == 'junit.xml':
+            paths.append(os.path.join(r, fn))
 
-          if not paths:
-              print("JUnit: not found"); sys.exit(0)
+if not paths:
+    print("JUnit: not found"); sys.exit(0)
 
-          T = F = E = S = 0
-          for p in paths:
-              try:
-                  root = ET.parse(p).getroot()
-              except Exception:
-                  continue
-              for ts in root.iter('testsuite'):
-                  T += int(ts.get('tests', 0) or 0)
-                  F += int(ts.get('failures', 0) or 0)
-                  E += int(ts.get('errors', 0) or 0)
-                  S += int(ts.get('skipped', 0) or 0)
+T = F = E = S = 0
+for p in paths:
+    try:
+        root = ET.parse(p).getroot()
+    except Exception:
+        continue
+    for ts in root.iter('testsuite'):
+        T += int(ts.get('tests', 0) or 0)
+        F += int(ts.get('failures', 0) or 0)
+        E += int(ts.get('errors', 0) or 0)
+        S += int(ts.get('skipped', 0) or 0)
 
-          print(f"JUnit: {T} tests, {F} failures, {E} errors, {S} skipped")
-          sys.exit(1 if F > 0 or E > 0 else 0)
-          PY
+print(f"JUnit: {T} tests, {F} failures, {E} errors, {S} skipped")
+sys.exit(1 if F > 0 or E > 0 else 0)
+PY
 
       - name: Coverage summary
+        if: ${{ always() }}
         shell: bash
         run: |
           f=$(find artifacts -type f -name lcov.info | head -n1)
@@ -64,4 +67,4 @@ jobs:
           fi
           pct=$(awk -F, '/^DA:/{t++; if ($2>0) c++} END{ if(t) printf("%.2f",100*c/t); else print 0 }' "$f")
           echo "Line coverage: ${pct}%" | tee -a "$GITHUB_STEP_SUMMARY"
-          awk -v p="$pct" 'BEGIN{ exit (p>=10)?0:1 }'
+          awk -v p="$pct" -v m="${COVERAGE_MIN}" 'BEGIN{ exit (p>=m)?0:1 }'
