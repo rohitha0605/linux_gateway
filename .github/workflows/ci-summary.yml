@@ -22,7 +22,7 @@ jobs:
       || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     env:
-      COVERAGE_MIN: "15"
+      COVERAGE_MIN: "18"
 
     steps:
       - name: Download artifacts from triggering run
@@ -71,4 +71,4 @@ jobs:
           fi
           pct=$(awk -F, '/^DA:/{t++; if ($2>0) c++} END{ if(t) printf("%.2f",100*c/t); else print 0 }' "${files[@]}")
           echo "Line coverage: ${pct}%" | tee -a "$GITHUB_STEP_SUMMARY"
-          awk -v p="$pct" -v min="${COVERAGE_MIN:-15}" 'BEGIN{ exit (p+0 >= min+0) ? 0 : 1 }'
+          awk -v p="$pct" -v min="${COVERAGE_MIN:-18}" 'BEGIN{ exit (p+0 >= min+0) ? 0 : 1 }'
