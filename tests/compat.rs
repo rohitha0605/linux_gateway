@@ -84,3 +84,36 @@ fn proto_malformed_is_error() {
 
     assert!(decode_calc_response(&frame).is_err());
 }
+// --- extra coverage helpers ---
+
+#[test]
+fn request_header_and_crc_are_consistent() {
+    // Exercise encode path + header parsing + CRC
+    let req = encode_calc_request(7, 35);
+    assert!(req.len() >= 10);
+
+    // [SYNC(2)][VER(1)][TYPE(1)][LEN(2)][CRC(4)][PAYLOAD…]
+    let sync = u16::from_be_bytes([req[0], req[1]]);
+    let ver  = req[2];
+    let typ  = req[3];
+    let len  = u16::from_be_bytes([req[4], req[5]]) as usize;
+    let crc_hdr = u32::from_be_bytes([req[6], req[7], req[8], req[9]]);
+
+    assert_eq!(sync, 0xA55A);
+    assert_eq!(ver, 0x01);
+    assert_eq!(typ, 0x01); // CalcRequest
+    assert_eq!(len, req.len() - 10);
+
+    let mut h = crc32fast::Hasher::new();
+    h.update(&req[10..]);
+    let crc_calc = h.finalize();
+    assert_eq!(crc_hdr, crc_calc);
+}
+
+#[test]
+fn decodes_max_varint_sum() {
+    // Cover multi-byte varint decoding path
+    let frame = mk_resp_frame(u32::MAX);
+    let resp  = decode_calc_response(&frame).expect("decode");
+    assert_eq!(resp.sum, u32::MAX);
+}
