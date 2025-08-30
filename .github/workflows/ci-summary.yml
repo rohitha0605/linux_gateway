@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       run_id:
-        description: "CI run ID to aggregate (optional)"
-        required: false
-        default: ""
+        description: "CI run ID to aggregate"
+        required: true
+        type: string
 
 permissions:
   actions: read
@@ -17,38 +17,47 @@ permissions:
 
 jobs:
   aggregate:
-    # allow manual dispatch OR CI-completed on main
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.head_branch == 'main' }}
+    # allow either workflow_run on main or manual dispatch
+    if: >
+      (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'main')
+      || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     env:
       COVERAGE_MIN: "15"
 
     steps:
-      - name: Download artifacts from triggering run (or provided run_id)
+      - name: Pick run id
+        id: pick
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "rid=${{ inputs.run_id }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "rid=${{ github.event.workflow_run.id }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download artifacts from chosen run
         uses: dawidd6/action-download-artifact@v2
         with:
-          run_id: ${{ inputs.run_id != '' && inputs.run_id || github.event.workflow_run.id }}
+          run_id: ${{ steps.pick.outputs.rid }}
           path: artifacts
           if_no_artifact_found: warn
 
-      - name: JUnit summary (fail job on failures/errors)
+      - name: JUnit summary (fail on failures/errors)
         shell: bash
         run: |
-          python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
+          python3 - <<'PY' > summary.txt
 import os, sys, xml.etree.ElementTree as ET
-paths=[]
-for r,_,fs in os.walk('artifacts'):
+base='artifacts'; paths=[]
+for r,_,fs in os.walk(base):
     for fn in fs:
-        if fn=='junit.xml':
-            paths.append(os.path.join(r,fn))
+        if fn=='junit.xml': paths.append(os.path.join(r,fn))
 if not paths:
     print("JUnit: not found"); sys.exit(0)
 T=F=E=S=0
 for p in paths:
-    try:
-        root=ET.parse(p).getroot()
-    except Exception:
-        continue
+    try: root=ET.parse(p).getroot()
+    except Exception: continue
     for ts in root.iter('testsuite'):
         T+=int(ts.get('tests') or 0)
         F+=int(ts.get('failures') or 0)
@@ -57,15 +66,15 @@ for p in paths:
 print(f"JUnit: {T} tests, {F} failures, {E} errors, {S} skipped")
 sys.exit(1 if F>0 or E>0 else 0)
 PY
+          cat summary.txt | tee -a "$GITHUB_STEP_SUMMARY"
 
-      - name: Coverage summary (aggregate all lcovs)
+      - name: Coverage summary
         shell: bash
         run: |
           shopt -s globstar nullglob
           files=(artifacts/**/lcov.info)
           if [ ${#files[@]} -eq 0 ]; then
-            echo "Line coverage: n/a" | tee -a "$GITHUB_STEP_SUMMARY"
-            exit 0
+            echo "Line coverage: n/a" | tee -a "$GITHUB_STEP_SUMMARY"; exit 0
           fi
           pct=$(awk -F, '/^DA:/{t++; if ($2>0) c++} END{ if(t) printf("%.2f",100*c/t); else print 0 }' "${files[@]}")
           echo "Line coverage: ${pct}%" | tee -a "$GITHUB_STEP_SUMMARY"
