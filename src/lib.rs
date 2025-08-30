@@ -62,6 +62,11 @@ pub fn encode_calc_request(a: u32, b: u32) -> Vec<u8> {
 pub fn decode_calc_response(
     frame: &[u8],
 ) -> Result<proto::rpmsg::calc::v1::CalcResponse, FrameError> {
+    // Guard: only accept protocol version 0x01
+    if frame.get(2).copied() != Some(0x01) {
+        return Err(FrameError::Crc);
+    }
+
     if frame.len() < 10 {
         return Err(FrameError::ShortHeader);
     }
