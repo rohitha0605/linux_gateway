@@ -1,7 +1,7 @@
 use linux_gateway::{decode_calc_response, encode_calc_request, FrameError};
 
 const SYNC: u16 = 0xA55A;
-const VER:  u8  = 0x01;
+const VER: u8 = 0x01;
 
 fn varint_u32(mut v: u32) -> Vec<u8> {
     let mut out = Vec::new();
