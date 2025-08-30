@@ -79,3 +79,44 @@ fn rejects_truncated_payload() {
     f.truncate(10 + len - 1); // drop a byte from payload
     assert!(linux_gateway::decode_calc_response(&f).is_err());
 }
+#[test]
+fn invalid_sync_is_error() {
+    let mut f = mk_resp_frame(1);
+    f[0] ^= 0xFF; // break SYNC
+    assert!(decode_calc_response(&f).is_err());
+}
+
+#[test]
+fn len_mismatch_is_error() {
+    let mut f = mk_resp_frame(1);
+    let len = u16::from_be_bytes([f[4], f[5]]);
+    let new_len = len.saturating_add(1);
+    f[4..6].copy_from_slice(&new_len.to_be_bytes());
+    assert!(decode_calc_response(&f).is_err());
+}
+
+#[test]
+fn header_too_short_is_error() {
+    let mut f = mk_resp_frame(1);
+    f.truncate(7); // shorter than 10-byte header
+    assert!(decode_calc_response(&f).is_err());
+}
+
+#[test]
+fn proto_malformed_is_error() {
+    // payload with bad tag, but correct CRC for *that* payload
+    let payload = vec![0xFF];
+    let mut h = crc32fast::Hasher::new();
+    h.update(&payload);
+    let crc = h.finalize();
+
+    let mut frame = Vec::with_capacity(10 + payload.len());
+    frame.extend_from_slice(&SYNC.to_be_bytes());
+    frame.push(VER);
+    frame.push(2u8); // CalcResp
+    frame.extend_from_slice(&(payload.len() as u16).to_be_bytes());
+    frame.extend_from_slice(&crc.to_be_bytes());
+    frame.extend_from_slice(&payload);
+
+    assert!(decode_calc_response(&frame).is_err());
+}
