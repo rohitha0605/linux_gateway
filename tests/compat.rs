@@ -64,3 +64,18 @@ fn rejects_unknown_type() {
     frame[3] = 0xFF; // type byte
     assert!(decode_calc_response(&frame).is_err());
 }
+#[test]
+fn rejects_bad_sync() {
+    let mut f = mk_resp_frame(1);
+    f[0] = 0;
+    f[1] = 0; // break SYNC
+    assert!(linux_gateway::decode_calc_response(&f).is_err());
+}
+
+#[test]
+fn rejects_truncated_payload() {
+    let mut f = mk_resp_frame(1);
+    let len = u16::from_be_bytes([f[4], f[5]]) as usize;
+    f.truncate(10 + len - 1); // drop a byte from payload
+    assert!(linux_gateway::decode_calc_response(&f).is_err());
+}
