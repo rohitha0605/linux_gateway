@@ -1,5 +1,4 @@
 name: CI Summary
-
 on:
   workflow_run:
     workflows: ["CI"]
@@ -7,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       run_id:
-        description: "CI run_id to aggregate"
+        description: "CI run id to aggregate"
         required: true
 
 permissions:
@@ -16,49 +15,51 @@ permissions:
 
 jobs:
   aggregate:
-    # allow both automatic (workflow_run) and manual (workflow_dispatch)
-    if: >
-      (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'main')
-      || github.event_name == 'workflow_dispatch'
+    if: github.event.workflow_run.head_branch == 'main' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     env:
       COVERAGE_MIN: "18"
 
     steps:
       - name: Download artifacts from triggering run
-        uses: dawidd6/action-download-artifact@v2
-        with:
-          run_id: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.run_id) || github.event.workflow_run.id }}
-          path: artifacts
-          if_no_artifact_found: warn
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          if [ -z "${RID:-}" ]; then
+            echo "No run_id to aggregate"; exit 1
+          fi
+          echo "Downloading artifacts from run_id=$RID"
+          gh run download "$RID" -D artifacts || echo "No artifacts found"
 
       - name: JUnit summary (fail job on failures/errors)
         shell: bash
         run: |
           python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
-          import os, sys, xml.etree.ElementTree as ET
-          base='artifacts'
-          paths=[]
-          for r,_,fs in os.walk(base):
-              for fn in fs:
-                  if fn=='junit.xml':
-                      paths.append(os.path.join(r,fn))
-          if not paths:
-              print("JUnit: not found"); sys.exit(0)
-          T=F=E=S=0
-          for p in paths:
-              try:
-                  root=ET.parse(p).getroot()
-              except Exception:
-                  continue
-              for ts in root.iter('testsuite'):
-                  T+=int(ts.get('tests') or 0)
-                  F+=int(ts.get('failures') or 0)
-                  E+=int(ts.get('errors') or 0)
-                  S+=int(ts.get('skipped') or 0)
-          print(f"JUnit: {T} tests, {F} failures, {E} errors, {S} skipped")
-          sys.exit(1 if F>0 or E>0 else 0)
-          PY
+import os, sys, xml.etree.ElementTree as ET
+paths=[]
+for r,_,fs in os.walk('artifacts'):
+    for fn in fs:
+        if fn=='junit.xml':
+            paths.append(os.path.join(r,fn))
+if not paths:
+    print("JUnit: not found"); sys.exit(0)
+T=F=E=S=0
+for p in paths:
+    try:
+        root=ET.parse(p).getroot()
+    except Exception:
+        continue
+    for ts in root.iter('testsuite'):
+        T+=int(ts.get('tests') or 0)
+        F+=int(ts.get('failures') or 0)
+        E+=int(ts.get('errors') or 0)
+        S+=int(ts.get('skipped') or 0)
+print(f"JUnit: {T} tests, {F} failures, {E} errors, {S} skipped")
+sys.exit(1 if F>0 or E>0 else 0)
+PY
 
       - name: Coverage summary (aggregate all lcovs)
         shell: bash
