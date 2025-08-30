@@ -1,21 +1,16 @@
-#ifndef TRACE_UTIL_H
-#define TRACE_UTIL_H
-#include <stdint.h>
+#pragma once
+#include <string.h>
+#include "calc.pb.h"
 
-static inline void trace_set(void *trace, uint64_t id, uint64_t span_id, uint64_t ts_ns) {
-    struct { uint64_t id, span_id, ts_ns; } *t = (struct { uint64_t id, span_id, ts_ns; } *)trace;
-    if (!t) return;
-    t->id = id;
-    t->span_id = span_id;
-    t->ts_ns = ts_ns;
-}
+typedef rpmsg_calc_v1_TraceHeader TraceHdr;
 
-static inline void trace_echo(void *dst, const void *src) {
-    const struct { uint64_t id, span_id, ts_ns; } *s = (const struct { uint64_t id, span_id, ts_ns; } *)src;
-    struct { uint64_t id, span_id, ts_ns; } *d = (struct { uint64_t id, span_id, ts_ns; } *)dst;
-    if (!d || !s) return;
-    d->id = s->id;
-    d->span_id = s->span_id;
-    d->ts_ns = s->ts_ns;
+/* Echo whatever trace the decoder produced */
+static inline void trace_copy(TraceHdr *dst, const TraceHdr *src) { *dst = *src; }
+
+/* Stub to keep old callers harmless if any remain */
+static inline void trace_set(TraceHdr *t,
+                             unsigned long long id,
+                             unsigned long long span_id,
+                             unsigned long long ts_ns) {
+    (void)t; (void)id; (void)span_id; (void)ts_ns;
 }
-#endif
