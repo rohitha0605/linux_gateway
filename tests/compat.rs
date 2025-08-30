@@ -130,9 +130,9 @@ fn request_header_and_crc_are_consistent() {
 
     // [SYNC(2)][VER(1)][TYPE(1)][LEN(2)][CRC(4)][PAYLOAD…]
     let sync = u16::from_be_bytes([req[0], req[1]]);
-    let ver  = req[2];
-    let typ  = req[3];
-    let len  = u16::from_be_bytes([req[4], req[5]]) as usize;
+    let ver = req[2];
+    let typ = req[3];
+    let len = u16::from_be_bytes([req[4], req[5]]) as usize;
     let crc_hdr = u32::from_be_bytes([req[6], req[7], req[8], req[9]]);
 
     assert_eq!(sync, 0xA55A);
@@ -150,6 +150,6 @@ fn request_header_and_crc_are_consistent() {
 fn decodes_max_varint_sum() {
     // Cover multi-byte varint decoding path
     let frame = mk_resp_frame(u32::MAX);
-    let resp  = decode_calc_response(&frame).expect("decode");
+    let resp = decode_calc_response(&frame).expect("decode");
     assert_eq!(resp.sum, u32::MAX);
 }
