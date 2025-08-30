@@ -1,5 +1,4 @@
 name: CI Summary
-
 on:
   workflow_run:
     workflows: ["CI"]
@@ -11,9 +10,10 @@ permissions:
 
 jobs:
   aggregate:
-    if: github.event.workflow_run.head_branch == 'main'
+    if: ${{ github.event.workflow_run.head_branch == 'main' }}
     runs-on: ubuntu-latest
     env:
+      # Fail the job if coverage falls below this percent
       COVERAGE_MIN: "10"
 
     steps:
@@ -21,6 +21,7 @@ jobs:
         uses: dawidd6/action-download-artifact@v2
         with:
           run_id: ${{ github.event.workflow_run.id }}
+          # download ALL artifacts from the CI run
           path: artifacts
           if_no_artifact_found: warn
 
@@ -28,28 +29,37 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          shopt -s globstar nullglob
-          files=(artifacts/**/junit.xml)
-          if [ ${#files[@]} -eq 0 ]; then
-            echo "JUnit: not found" | tee -a "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          awk -F'[=\" ]' '
-            /<testsuite /{
-              for(i=1;i<=NF;i++){
-                if($i=="tests")    T+=$(i+1)
-                if($i=="failures") F+=$(i+1)
-                if($i=="errors")   E+=$(i+1)
-                if($i=="skipped")  S+=$(i+1)
-              }
-            }
-            END{
-              printf("JUnit: %d tests, %d failures, %d errors, %d skipped\n", T+0,F+0,E+0,S+0)
-              if((F+0)>0 || (E+0)>0) exit 1
-            }
-          ' "${files[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+          python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
+import os, sys, xml.etree.ElementTree as ET
+
+base = 'artifacts'
+paths = []
+for r, _, fs in os.walk(base):
+    for fn in fs:
+        if fn == 'junit.xml':
+            paths.append(os.path.join(r, fn))
+
+if not paths:
+    print("JUnit: not found"); sys.exit(0)
+
+T = F = E = S = 0
+for p in paths:
+    try:
+        root = ET.parse(p).getroot()
+    except Exception:
+        continue
+    for ts in root.iter('testsuite'):
+        T += int(ts.get('tests')    or 0)
+        F += int(ts.get('failures') or 0)
+        E += int(ts.get('errors')   or 0)
+        S += int(ts.get('skipped')  or 0)
+
+print(f"JUnit: {T} tests, {F} failures, {E} errors, {S} skipped")
+sys.exit(1 if F > 0 or E > 0 else 0)
+PY
 
       - name: Coverage summary (aggregate all lcovs)
+        if: ${{ always() }}
         shell: bash
         run: |
           set -euo pipefail
