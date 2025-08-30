@@ -1,4 +1,5 @@
-rpmsg.calc.v1.TraceHeader.id max_size:16
-rpmsg.calc.v1.TraceHeader.id fixed_length:true
-rpmsg.calc.v1.TraceHeader.span_id max_size:8
-rpmsg.calc.v1.TraceHeader.span_id fixed_length:true
+calc.CalcRequest.version  type:u32
+calc.CalcRequest.a        type:u32
+calc.CalcRequest.b        type:u32
+calc.CalcResponse.version type:u32
+calc.CalcResponse.result  type:u32
