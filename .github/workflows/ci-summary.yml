@@ -1,4 +1,5 @@
 name: CI Summary
+
 on:
   workflow_run:
     workflows: ["CI"]
@@ -6,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       run_id:
-        description: "CI run id to summarize (optional)"
-        required: false
-        default: ""
+        description: "CI run_id to aggregate"
+        required: true
+        type: string
 
 permissions:
   actions: read
@@ -16,42 +17,47 @@ permissions:
 
 jobs:
   aggregate:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.head_branch == 'main'
+    # run for CI completion on main OR when manually dispatched
+    if: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'main') || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     env:
+      # prefer workflow_run.id; fall back to dispatch input
+      RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
       COVERAGE_MIN: "15"
 
     steps:
       - name: Download artifacts from triggering run
         uses: dawidd6/action-download-artifact@v2
         with:
-          run_id: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.run_id || github.event.workflow_run.id }}
+          run_id: ${{ env.RUN_ID }}
           path: artifacts
           if_no_artifact_found: warn
 
       - name: JUnit summary (fail job on failures/errors)
         shell: bash
         run: |
+          set -euo pipefail
           python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
 import os, sys, xml.etree.ElementTree as ET
-paths=[]
-for r,_,fs in os.walk('artifacts'):
+base = 'artifacts'
+paths = []
+for r, _, fs in os.walk(base):
     for fn in fs:
-        if fn=='junit.xml':
-            paths.append(os.path.join(r,fn))
+        if fn == 'junit.xml':
+            paths.append(os.path.join(r, fn))
 if not paths:
     print("JUnit: not found"); sys.exit(0)
 T=F=E=S=0
 for p in paths:
     try:
-        root=ET.parse(p).getroot()
+        root = ET.parse(p).getroot()
     except Exception:
         continue
     for ts in root.iter('testsuite'):
-        T+=int(ts.get('tests') or 0)
-        F+=int(ts.get('failures') or 0)
-        E+=int(ts.get('errors') or 0)
-        S+=int(ts.get('skipped') or 0)
+        T += int(ts.get('tests') or 0)
+        F += int(ts.get('failures') or 0)
+        E += int(ts.get('errors') or 0)
+        S += int(ts.get('skipped') or 0)
 print(f"JUnit: {T} tests, {F} failures, {E} errors, {S} skipped")
 sys.exit(1 if F>0 or E>0 else 0)
 PY
@@ -59,10 +65,11 @@ PY
       - name: Coverage summary (aggregate all lcovs)
         shell: bash
         run: |
+          set -euo pipefail
           shopt -s globstar nullglob
           files=(artifacts/**/lcov.info)
           if [ ${#files[@]} -eq 0 ]; then
-            echo "Line coverage: n/a" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "Coverage: not found" | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           pct=$(awk -F, '/^DA:/{t++; if ($2>0) c++} END{ if(t) printf("%.2f",100*c/t); else print 0 }' "${files[@]}")
