@@ -2,7 +2,7 @@ name: CI Summary
 
 on:
   workflow_run:
-    workflows: ["CI"]          # exact name of your CI workflow
+    workflows: ["CI"]          # exact CI workflow name
     types: [completed]
   workflow_dispatch:
     inputs:
@@ -21,16 +21,16 @@ jobs:
   aggregate:
     runs-on: ubuntu-latest
     env:
-      COVERAGE_MIN: "18"
       REPO: ${{ github.repository }}
+      COVERAGE_MIN: "18"
     steps:
-      - name: Resolve run_id and download artifacts
+      - name: Resolve run_id
+        id: res
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          WF_NAME: "CI"        # exact workflow name
+          WF_NAME: "CI"
         run: |
           set -euo pipefail
-          mkdir -p artifacts
           RID=""
           # 1) workflow_run payload
           if [ "${{ github.event_name }}" = "workflow_run" ]; then
@@ -40,10 +40,10 @@ jobs:
           if [ -z "${RID}" ] && [ -n "${{ inputs.run_id || '' }}" ]; then
             RID="${{ inputs.run_id }}"
           fi
-          # 3) push/PR: find CI run for this commit SHA
+          # 3) fallback: find CI run for this commit SHA
           if [ -z "${RID}" ]; then
             echo "Resolving run id for '${WF_NAME}' at $GITHUB_SHA"
-            RID="$(gh run list -R "$REPO" --json databaseId,headSha,workflowName -L 50 \
+            RID="$(gh run list -R "${{ env.REPO }}" --json databaseId,headSha,workflowName -L 50 \
                   --jq ".[] | select(.headSha==\"$GITHUB_SHA\" and .workflowName==\"${WF_NAME}\") | .databaseId" \
                   | head -n1 || true)"
           fi
@@ -51,11 +51,24 @@ jobs:
             echo "::error::No run_id to aggregate for $GITHUB_SHA (workflow '${WF_NAME}' not found)."
             exit 1
           fi
+          echo "rid=$RID" >> "$GITHUB_OUTPUT"
+          echo "RID=$RID"
 
-          echo "Downloading artifacts from run_id=$RID"
-          if ! gh run download -R "$REPO" "$RID" -D artifacts; then
-            echo "::warning::No artifacts found in run $RID"
-          fi
+      - name: List artifacts on the CI run
+        env:
+          RID: ${{ steps.res.outputs.rid }}
+        run: |
+          gh api "repos/${REPO}/actions/runs/${RID}/artifacts" \
+            --jq '{count: .total_count, names: [.artifacts[].name]}'
+
+      - name: Download artifacts from the CI run
+        env:
+          RID: ${{ steps.res.outputs.rid }}
+        run: |
+          mkdir -p artifacts
+          gh run download -R "$REPO" "$RID" -D artifacts
+          echo "Downloaded files:"
+          find artifacts -maxdepth 3 -type f | sed -n '1,200p' || true
 
       - name: JUnit summary (fail on failures/errors)
         shell: bash
@@ -87,17 +100,18 @@ jobs:
           if F>0 or E>0: sys.exit(1)
           PY
 
-      - name: Coverage summary (ignore src/main.rs; LCOV → JaCoCo XML fallback)
+      - name: Coverage summary (LCOV → JaCoCo XML fallback)
         shell: bash
         env:
-          IGNORE_RE: '$a'
+          IGNORE_RE: '(?!)'   # matches nothing; change to 'src/main\.rs$' if you wish to ignore again
         run: |
           set -euo pipefail
           : "${GITHUB_STEP_SUMMARY:=/tmp/STEP_SUMMARY.md}"
           python3 - <<'PY'
-          import glob, re, os, xml.etree.ElementTree as ET
-          ignore = re.compile(os.environ.get("IGNORE_RE", r"$a"))  # default matches nothing
-          # ---- LCOV with ignore per-file ----
+          import glob, os, re, xml.etree.ElementTree as ET
+          ignore = re.compile(os.environ.get("IGNORE_RE","(?!)"))  # match nothing by default
+
+          # ---- LCOV with per-file ignore ----
           pct=None
           for fp in glob.glob('artifacts/**/lcov.info', recursive=True):
               LF=LH=0
@@ -119,7 +133,8 @@ jobs:
               if LF:
                   pct = (LH/LF)*100.0
                   break
-          # ---- Fallback: JaCoCo XML (no ignore here) ----
+
+          # ---- Fallback: JaCoCo XML ----
           if pct is None:
               covered=missed=0
               for fp in glob.glob('artifacts/**/*.xml', recursive=True):
@@ -133,7 +148,7 @@ jobs:
               tot=covered+missed
               if tot:
                   pct = covered/tot*100.0
-          # ---- Print & gate ----
+
           if pct is None:
               print("[CI] Line coverage: not found")
               print("- Line coverage: not found")
