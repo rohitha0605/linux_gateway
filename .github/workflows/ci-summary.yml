@@ -90,7 +90,7 @@ jobs:
       - name: Coverage summary (ignore src/main.rs; LCOV → JaCoCo XML fallback)
         shell: bash
         env:
-          IGNORE_RE: 'src/main\.rs$'
+          IGNORE_RE: '$a'
         run: |
           set -euo pipefail
           : "${GITHUB_STEP_SUMMARY:=/tmp/STEP_SUMMARY.md}"
