@@ -1,75 +1,131 @@
 name: CI Summary
+
 on:
   workflow_run:
-    workflows: ["CI"]
+    workflows: ["CI"]          # exact name of your CI workflow
     types: [completed]
   workflow_dispatch:
     inputs:
       run_id:
-        description: "CI run id to aggregate"
-        required: true
+        description: "CI run id to aggregate (optional)"
+        required: false
+  push:
+    branches: [ main ]
+  pull_request:
 
-permissions:
-  actions: read
-  contents: read
+concurrency:
+  group: ci-summary-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   aggregate:
-    if: github.event.workflow_run.head_branch == 'main' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     env:
       COVERAGE_MIN: "18"
-
     steps:
-      - name: Download artifacts from triggering run
+      - name: Resolve run_id and download artifacts
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.run_id }}
+          WF_NAME: "CI"        # exact workflow name
         run: |
           set -euo pipefail
           mkdir -p artifacts
-          if [ -z "${RID:-}" ]; then
-            echo "No run_id to aggregate"; exit 1
+          RID=""
+          # 1) workflow_run payload
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            RID="${{ github.event.workflow_run.id }}"
+          fi
+          # 2) manual input
+          if [ -z "${RID}" ] && [ -n "${{ inputs.run_id || '' }}" ]; then
+            RID="${{ inputs.run_id }}"
+          fi
+          # 3) push/PR: find CI run for this commit SHA
+          if [ -z "${RID}" ]; then
+            echo "Resolving run id for '${WF_NAME}' at $GITHUB_SHA"
+            RID="$(gh run list --json databaseId,headSha,workflowName -L 50 \
+                  --jq ".[] | select(.headSha==\"$GITHUB_SHA\" and .workflowName==\"${WF_NAME}\") | .databaseId" \
+                  | head -n1 || true)"
+          fi
+          if [ -z "${RID}" ]; then
+            echo "::error::No run_id to aggregate for $GITHUB_SHA (workflow '${WF_NAME}' not found)."
+            exit 1
           fi
           echo "Downloading artifacts from run_id=$RID"
-          gh run download "$RID" -D artifacts || echo "No artifacts found"
+          if ! gh run download "$RID" -D artifacts; then
+            echo "::warning::No artifacts found in run $RID"
+          fi
 
-      - name: JUnit summary (fail job on failures/errors)
+      - name: JUnit summary (fail on failures/errors)
         shell: bash
         run: |
           python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
-import os, sys, xml.etree.ElementTree as ET
-paths=[]
-for r,_,fs in os.walk('artifacts'):
-    for fn in fs:
-        if fn=='junit.xml':
-            paths.append(os.path.join(r,fn))
-if not paths:
-    print("JUnit: not found"); sys.exit(0)
-T=F=E=S=0
-for p in paths:
-    try:
-        root=ET.parse(p).getroot()
-    except Exception:
-        continue
-    for ts in root.iter('testsuite'):
-        T+=int(ts.get('tests') or 0)
-        F+=int(ts.get('failures') or 0)
-        E+=int(ts.get('errors') or 0)
-        S+=int(ts.get('skipped') or 0)
-print(f"JUnit: {T} tests, {F} failures, {E} errors, {S} skipped")
-sys.exit(1 if F>0 or E>0 else 0)
-PY
+          import os, sys, xml.etree.ElementTree as ET
+          paths=[]
+          for r,_,fs in os.walk('artifacts'):
+              for fn in fs:
+                  if fn.endswith('.xml') and ('junit' in fn or 'test-results' in r or 'surefire' in r or 'failsafe' in r):
+                      paths.append(os.path.join(r,fn))
+          if not paths:
+              print("[CI] JUnit: 0 tests, 0 failures, 0 errors, 0 skipped"); sys.exit(0)
+          T=F=E=S=0
+          for p in paths:
+              try:
+                  root=ET.parse(p).getroot()
+              except Exception:
+                  continue
+              suites=[root] if root.tag.endswith('testsuite') else root.findall('.//testsuite')
+              for ts in suites:
+                  T+=int(ts.attrib.get('tests',0) or 0)
+                  F+=int(ts.attrib.get('failures',0) or 0)
+                  E+=int(ts.attrib.get('errors',0) or 0)
+                  S+=int(ts.attrib.get('skipped',0) or 0)
+          msg=f"[CI] JUnit: {T} tests, {F} failures, {E} errors, {S} skipped"
+          print(msg)
+          print("### CI Summary\n\n- "+msg[5:]+"\n")
+          if F>0 or E>0: sys.exit(1)
+          PY
 
-      - name: Coverage summary (aggregate all lcovs)
+      - name: Coverage summary (LCOV → JaCoCo XML fallback)
         shell: bash
         run: |
-          shopt -s globstar nullglob
-          files=(artifacts/**/lcov.info)
-          if [ ${#files[@]} -eq 0 ]; then
-            echo "Coverage: not found" | tee -a "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          pct=$(awk -F, '/^DA:/{t++; if ($2>0) c++} END{ if(t) printf("%.2f",100*c/t); else print 0 }' "${files[@]}")
-          echo "Line coverage: ${pct}%" | tee -a "$GITHUB_STEP_SUMMARY"
-          awk -v p="$pct" -v min="${COVERAGE_MIN:-18}" 'BEGIN{ exit (p+0 >= min+0) ? 0 : 1 }'
+          set -euo pipefail
+          : "${GITHUB_STEP_SUMMARY:=/tmp/STEP_SUMMARY.md}"
+          python3 - <<'PY'
+          import glob, xml.etree.ElementTree as ET, os
+          # Try LCOV first
+          LF=LH=0
+          for fp in glob.glob('artifacts/**/lcov.info', recursive=True):
+              try:
+                  with open(fp, encoding="utf-8", errors="ignore") as fh:
+                      for line in fh:
+                          if line.startswith('LF:'): LF += int(line.split(':',1)[1])
+                          elif line.startswith('LH:'): LH += int(line.split(':',1)[1])
+              except Exception:
+                  pass
+          pct=None
+          if LF:
+              pct = LH/LF*100.0
+          # Fallback: JaCoCo XML
+          if pct is None:
+              covered=missed=0
+              for fp in glob.glob('artifacts/**/*.xml', recursive=True):
+                  try:
+                      r=ET.parse(fp).getroot()
+                      for c in r.findall(".//counter[@type='LINE']"):
+                          covered += int(c.attrib.get('covered','0') or 0)
+                          missed  += int(c.attrib.get('missed','0') or 0)
+                  except Exception:
+                      pass
+              tot=covered+missed
+              if tot:
+                  pct=covered/tot*100.0
+          if pct is None:
+              print("[CI] Line coverage: not found")
+              print("- Line coverage: not found")
+          else:
+              print(f"[CI] Line coverage: {pct:.2f}%")
+              print(f"- Line coverage: {pct:.2f}%")
+              minv=float(os.environ.get("COVERAGE_MIN","18"))
+              if pct < minv:
+                  raise SystemExit(1)
+          PY
