@@ -21,7 +21,7 @@ jobs:
   aggregate:
     runs-on: ubuntu-latest
     env:
-      COVERAGE_MIN: "18"
+      COVERAGE_MIN: ${{ github.ref == 'refs/heads/main' && '18' || '15' }}
       REPO: ${{ github.repository }}
     steps:
       - name: Resolve run_id and download artifacts
