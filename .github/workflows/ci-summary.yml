@@ -22,6 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       COVERAGE_MIN: "18"
+      REPO: ${{ github.repository }}
     steps:
       - name: Resolve run_id and download artifacts
         env:
@@ -42,7 +43,7 @@ jobs:
           # 3) push/PR: find CI run for this commit SHA
           if [ -z "${RID}" ]; then
             echo "Resolving run id for '${WF_NAME}' at $GITHUB_SHA"
-            RID="$(gh run list --json databaseId,headSha,workflowName -L 50 \
+            RID="$(gh run list -R "$REPO" --json databaseId,headSha,workflowName -L 50 \
                   --jq ".[] | select(.headSha==\"$GITHUB_SHA\" and .workflowName==\"${WF_NAME}\") | .databaseId" \
                   | head -n1 || true)"
           fi
@@ -50,8 +51,9 @@ jobs:
             echo "::error::No run_id to aggregate for $GITHUB_SHA (workflow '${WF_NAME}' not found)."
             exit 1
           fi
+
           echo "Downloading artifacts from run_id=$RID"
-          if ! gh run download "$RID" -D artifacts; then
+          if ! gh run download -R "$REPO" "$RID" -D artifacts; then
             echo "::warning::No artifacts found in run $RID"
           fi
 
@@ -122,6 +124,7 @@ jobs:
           if pct is None:
               print("[CI] Line coverage: not found")
               print("- Line coverage: not found")
+              raise SystemExit(1)
           else:
               print(f"[CI] Line coverage: {pct:.2f}%")
               print(f"- Line coverage: {pct:.2f}%")
