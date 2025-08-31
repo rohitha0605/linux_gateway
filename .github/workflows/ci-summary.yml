@@ -24,7 +24,7 @@ jobs:
     env:
       REPO: ${{ github.repository }}
       GH_TOKEN: ${{ github.token }}
-      COVERAGE_MIN: "0"
+      COVERAGE_MIN: "18"
     steps:
       - name: Resolve run_id
         id: res
@@ -111,7 +111,7 @@ jobs:
           PY
 
       - name: Coverage summary (LCOV → JaCoCo XML fallback)
-        continue-on-error: true
+        
                         shell: bash
         env:
           IGNORE_RE: '(?!)'   # set to 'src/main\.rs$' only if you want to exclude main.rs
