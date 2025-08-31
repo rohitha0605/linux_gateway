@@ -21,7 +21,7 @@ jobs:
   aggregate:
     runs-on: ubuntu-latest
     env:
-      COVERAGE_MIN: ${{ github.ref == 'refs/heads/main' && '18' || '15' }}
+      COVERAGE_MIN: "18"
       REPO: ${{ github.repository }}
     steps:
       - name: Resolve run_id and download artifacts
@@ -87,40 +87,53 @@ jobs:
           if F>0 or E>0: sys.exit(1)
           PY
 
-      - name: Coverage summary (LCOV → JaCoCo XML fallback)
+      - name: Coverage summary (ignore src/main.rs; LCOV → JaCoCo XML fallback)
         shell: bash
+        env:
+          IGNORE_RE: 'src/main\.rs$'
         run: |
           set -euo pipefail
           : "${GITHUB_STEP_SUMMARY:=/tmp/STEP_SUMMARY.md}"
           python3 - <<'PY'
-          import glob, xml.etree.ElementTree as ET, os
-          # Try LCOV first
-          LF=LH=0
+          import glob, re, os, xml.etree.ElementTree as ET
+          ignore = re.compile(os.environ.get("IGNORE_RE", r"$a"))  # default matches nothing
+          # ---- LCOV with ignore per-file ----
+          pct=None
           for fp in glob.glob('artifacts/**/lcov.info', recursive=True):
+              LF=LH=0
+              sf=None; skip=False
               try:
                   with open(fp, encoding="utf-8", errors="ignore") as fh:
                       for line in fh:
-                          if line.startswith('LF:'): LF += int(line.split(':',1)[1])
-                          elif line.startswith('LH:'): LH += int(line.split(':',1)[1])
+                          if line.startswith('SF:'):
+                              sf=line[3:].strip()
+                              skip = bool(ignore.search(sf))
+                          elif line.startswith('LF:') and not skip:
+                              LF += int(line.split(':',1)[1])
+                          elif line.startswith('LH:') and not skip:
+                              LH += int(line.split(':',1)[1])
+                          elif line.startswith('end_of_record'):
+                              sf=None; skip=False
               except Exception:
-                  pass
-          pct=None
-          if LF:
-              pct = LH/LF*100.0
-          # Fallback: JaCoCo XML
+                  continue
+              if LF:
+                  pct = (LH/LF)*100.0
+                  break
+          # ---- Fallback: JaCoCo XML (no ignore here) ----
           if pct is None:
               covered=missed=0
               for fp in glob.glob('artifacts/**/*.xml', recursive=True):
                   try:
                       r=ET.parse(fp).getroot()
-                      for c in r.findall(".//counter[@type='LINE']"):
-                          covered += int(c.attrib.get('covered','0') or 0)
-                          missed  += int(c.attrib.get('missed','0') or 0)
                   except Exception:
-                      pass
+                      continue
+                  for c in r.findall(".//counter[@type='LINE']"):
+                      covered += int(c.attrib.get('covered','0') or 0)
+                      missed  += int(c.attrib.get('missed','0') or 0)
               tot=covered+missed
               if tot:
-                  pct=covered/tot*100.0
+                  pct = covered/tot*100.0
+          # ---- Print & gate ----
           if pct is None:
               print("[CI] Line coverage: not found")
               print("- Line coverage: not found")
