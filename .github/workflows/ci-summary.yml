@@ -2,7 +2,7 @@ name: CI Summary
 
 on:
   workflow_run:
-    workflows: ["CI"]          # exact CI workflow name
+    workflows: ["CI"]
     types: [completed]
   workflow_dispatch:
     inputs:
@@ -22,12 +22,12 @@ jobs:
     runs-on: ubuntu-latest
     env:
       REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}   # <-- give gh CLI credentials for ALL steps
       COVERAGE_MIN: "18"
     steps:
       - name: Resolve run_id
         id: res
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           WF_NAME: "CI"
         run: |
           set -euo pipefail
@@ -40,10 +40,10 @@ jobs:
           if [ -z "${RID}" ] && [ -n "${{ inputs.run_id || '' }}" ]; then
             RID="${{ inputs.run_id }}"
           fi
-          # 3) fallback: find CI run for this commit SHA
+          # 3) fallback: CI run for this commit SHA
           if [ -z "${RID}" ]; then
             echo "Resolving run id for '${WF_NAME}' at $GITHUB_SHA"
-            RID="$(gh run list -R "${{ env.REPO }}" --json databaseId,headSha,workflowName -L 50 \
+            RID="$(gh run list -R "${REPO}" --json databaseId,headSha,workflowName -L 50 \
                   --jq ".[] | select(.headSha==\"$GITHUB_SHA\" and .workflowName==\"${WF_NAME}\") | .databaseId" \
                   | head -n1 || true)"
           fi
@@ -103,15 +103,15 @@ jobs:
       - name: Coverage summary (LCOV → JaCoCo XML fallback)
         shell: bash
         env:
-          IGNORE_RE: '(?!)'   # matches nothing; change to 'src/main\.rs$' if you wish to ignore again
+          IGNORE_RE: '(?!)'   # match nothing; set to 'src/main\.rs$' to ignore that file
         run: |
           set -euo pipefail
           : "${GITHUB_STEP_SUMMARY:=/tmp/STEP_SUMMARY.md}"
           python3 - <<'PY'
           import glob, os, re, xml.etree.ElementTree as ET
-          ignore = re.compile(os.environ.get("IGNORE_RE","(?!)"))  # match nothing by default
+          ignore = re.compile(os.environ.get("IGNORE_RE","(?!)"))
 
-          # ---- LCOV with per-file ignore ----
+          # LCOV with per-file ignore
           pct=None
           for fp in glob.glob('artifacts/**/lcov.info', recursive=True):
               LF=LH=0
@@ -134,7 +134,7 @@ jobs:
                   pct = (LH/LF)*100.0
                   break
 
-          # ---- Fallback: JaCoCo XML ----
+          # JaCoCo fallback
           if pct is None:
               covered=missed=0
               for fp in glob.glob('artifacts/**/*.xml', recursive=True):
