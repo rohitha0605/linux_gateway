@@ -1,0 +1,27 @@
+name: afl-smoke
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  afl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install AFL++
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y afl++
+      - name: Build target (debug)
+        run: cargo build
+      - name: AFL smoke (QEMU mode, ~60s, non-blocking)
+        continue-on-error: true
+        env:
+          AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES: "1"
+          AFL_SKIP_CPUFREQ: "1"
+        run: |
+          mkdir -p findings
+          timeout 60s afl-fuzz -Q -i tests/corpus -o findings -- ./scripts/afl_decode.sh @@ || true
