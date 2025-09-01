@@ -1,5 +1,4 @@
 name: CI Summary
-
 on:
   workflow_run:
     workflows: ["CI"]
@@ -9,25 +8,22 @@ on:
       run_id:
         description: "CI run id to aggregate (optional)"
         required: false
-# ✅ needed so GH_TOKEN can read Actions artifacts
+
 permissions:
   actions: read
   contents: read
-
-concurrency:
-  group: ci-summary-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   aggregate:
     runs-on: ubuntu-latest
     env:
       REPO: ${{ github.repository }}
-      GH_TOKEN: ${{ github.token }}
       COVERAGE_MIN: "18"
+      GH_TOKEN: ${{ github.token }}
+
     steps:
       - name: Resolve run_id
-        id: res
+        shell: bash
         env:
           WF_NAME: "CI"
         run: |
@@ -40,8 +36,7 @@ jobs:
             RID="${{ inputs.run_id }}"
           fi
           if [ -z "${RID}" ]; then
-            echo "Resolving run id for '${WF_NAME}' at $GITHUB_SHA"
-            RID="$(gh run list -R "${REPO}" --json databaseId,headSha,workflowName -L 50 \
+            RID="$(gh run list -R "$REPO" --json databaseId,headSha,workflowName -L 50 \
                   --jq ".[] | select(.headSha==\"$GITHUB_SHA\" and .workflowName==\"${WF_NAME}\") | .databaseId" \
                   | head -n1 || true)"
           fi
@@ -49,109 +44,90 @@ jobs:
             echo "::error::No run_id to aggregate for $GITHUB_SHA (workflow '${WF_NAME}' not found)."
             exit 1
           fi
-          echo "rid=$RID" >> "$GITHUB_OUTPUT"
           echo "RID=$RID"
 
       - name: List artifacts on the CI run
-        env: { RID: ${{ steps.res.outputs.rid }} }
         run: |
           gh api "repos/${REPO}/actions/runs/${RID}/artifacts" \
             --jq '{count: .total_count, names: [.artifacts[].name]}'
 
-      - name: Download artifacts from the CI run (robust)
-        env: { RID: ${{ steps.res.outputs.rid }} }
+      - name: Download artifacts from the CI run
         run: |
-          set -euo pipefail
           mkdir -p artifacts
-          echo "Downloading all artifacts via gh run download…"
-          if ! gh run download -R "$REPO" "$RID" -D artifacts -v; then
-            echo "::warning::gh run download failed; trying per-artifact fallback"
-            mapfile -t IDS < <(gh api "repos/${REPO}/actions/runs/${RID}/artifacts" --jq '.artifacts[].id')
-            if [ ${#IDS[@]} -eq 0 ]; then
-              echo "::error::No artifacts on CI run $RID"; exit 1
-            fi
-            for id in "${IDS[@]}"; do
-              name="$(gh api "repos/${REPO}/actions/artifacts/${id}" --jq -r .name)"
-              echo "Fetching $name (id=$id) via REST…"
-              mkdir -p "artifacts/${name}"
-              gh api -H "Accept: application/octet-stream" \
-                "repos/${REPO}/actions/artifacts/${id}/zip" > "artifacts/${name}.zip"
-              unzip -oq "artifacts/${name}.zip" -d "artifacts/${name}" || true
-            done
+          if ! gh run download -R "$REPO" "$RID" -D artifacts; then
+            echo "::error::Download failed or no artifacts present for run $RID"
+            exit 1
           fi
           echo "Downloaded files:"
-          find artifacts -maxdepth 3 -type f | sed -n '1,200p' || true
+          find artifacts -type f | sed 's/^/ - /'
 
       - name: JUnit summary (fail on failures/errors)
         shell: bash
         run: |
           python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
-          import os, sys, xml.etree.ElementTree as ET
-          paths=[]
-          for r,_,fs in os.walk('artifacts'):
-              for fn in fs:
-                  if fn.endswith('.xml') and ('junit' in fn or 'test-results' in r or 'surefire' in r or 'failsafe' in r):
-                      paths.append(os.path.join(r,fn))
-          if not paths:
-              print("[CI] JUnit: 0 tests, 0 failures, 0 errors, 0 skipped"); sys.exit(0)
-          T=F=E=S=0
-          for p in paths:
-              try: root=ET.parse(p).getroot()
-              except Exception: continue
-              suites=[root] if root.tag.endswith('testsuite') else root.findall('.//testsuite')
-              for ts in suites:
-                  T+=int(ts.attrib.get('tests',0) or 0)
-                  F+=int(ts.attrib.get('failures',0) or 0)
-                  E+=int(ts.attrib.get('errors',0) or 0)
-                  S+=int(ts.attrib.get('skipped',0) or 0)
-          msg=f"[CI] JUnit: {T} tests, {F} failures, {E} errors, {S} skipped"
-          print(msg)
-          print("### CI Summary\n\n- "+msg[5:]+"\n")
-          pass  # don't fail on test flakiness here
-          PY
+import os, sys, xml.etree.ElementTree as ET
+paths=[]
+for r,_,fs in os.walk('artifacts'):
+    for fn in fs:
+        if fn.endswith('.xml') and ('junit' in fn or 'test-results' in r or 'surefire' in r or 'failsafe' in r):
+            paths.append(os.path.join(r,fn))
+if not paths:
+    print("[CI] JUnit: 0 tests, 0 failures, 0 errors, 0 skipped"); sys.exit(0)
+T=F=E=S=0
+for p in paths:
+    try:
+        root=ET.parse(p).getroot()
+    except Exception:
+        continue
+    suites=[root] if root.tag.endswith('testsuite') else root.findall('.//testsuite')
+    for ts in suites:
+        T+=int(ts.attrib.get('tests',0) or 0)
+        F+=int(ts.attrib.get('failures',0) or 0)
+        E+=int(ts.attrib.get('errors',0) or 0)
+        S+=int(ts.attrib.get('skipped',0) or 0)
+msg=f"[CI] JUnit: {T} tests, {F} failures, {E} errors, {S} skipped"
+print(msg)
+print("### CI Summary\n\n- "+msg[5:]+"\n")
+if F>0 or E>0: sys.exit(1)
+PY
 
       - name: Coverage summary (LCOV → JaCoCo XML fallback)
-        
-                        shell: bash
-        env:
-          IGNORE_RE: '(?!)'   # set to 'src/main\.rs$' only if you want to exclude main.rs
+        shell: bash
         run: |
           set -euo pipefail
           : "${GITHUB_STEP_SUMMARY:=/tmp/STEP_SUMMARY.md}"
           python3 - <<'PY'
-          import glob, os, re, xml.etree.ElementTree as ET
-          ignore = re.compile(os.environ.get("IGNORE_RE","(?!)"))
-          pct=None
-          for fp in glob.glob('artifacts/**/lcov.info', recursive=True):
-              LF=LH=0; sf=None; skip=False
-              try:
-                  with open(fp, encoding="utf-8", errors="ignore") as fh:
-                      for line in fh:
-                          if line.startswith('SF:'):
-                              sf=line[3:].strip(); skip=bool(ignore.search(sf))
-                          elif line.startswith('LF:') and not skip:
-                              LF+=int(line.split(':',1)[1])
-                          elif line.startswith('LH:') and not skip:
-                              LH+=int(line.split(':',1)[1])
-                          elif line.startswith('end_of_record'):
-                              sf=None; skip=False
-              except Exception:
-                  continue
-              if LF: pct=(LH/LF)*100.0; break
-          if pct is None:
-              covered=missed=0
-              for fp in glob.glob('artifacts/**/*.xml', recursive=True):
-                  try: r=ET.parse(fp).getroot()
-                  except Exception: continue
-                  for c in r.findall(".//counter[@type='LINE']"):
-                      covered+=int(c.attrib.get('covered','0') or 0)
-                      missed +=int(c.attrib.get('missed','0') or 0)
-              tot=covered+missed
-              if tot: pct=covered/tot*100.0
-          if pct is None:
-              print("[CI] Line coverage: not found"); print("- Line coverage: not found"); raise SystemExit(1)
-          else:
-              print(f"[CI] Line coverage: {pct:.2f}%"); print(f"- Line coverage: {pct:.2f}%")
-              minv=float(os.environ.get("COVERAGE_MIN","18"))
-              if pct < minv: raise SystemExit(1)
-          PY
+import glob, xml.etree.ElementTree as ET, os, sys
+# Try LCOV first
+LF=LH=0
+for fp in glob.glob('artifacts/**/lcov.info', recursive=True):
+    try:
+        with open(fp, encoding="utf-8", errors="ignore") as fh:
+            for line in fh:
+                if line.startswith('LF:'): LF += int(line.split(':',1)[1])
+                elif line.startswith('LH:'): LH += int(line.split(':',1)[1])
+    except Exception: pass
+pct=None
+if LF: pct = LH/LF*100.0
+# Fallback: JaCoCo XML
+if pct is None:
+    covered=missed=0
+    for fp in glob.glob('artifacts/**/*.xml', recursive=True):
+        try:
+            r=ET.parse(fp).getroot()
+            for c in r.findall(".//counter[@type='LINE']"):
+                covered += int(c.attrib.get('covered','0') or 0)
+                missed  += int(c.attrib.get('missed','0') or 0)
+        except Exception: pass
+    tot=covered+missed
+    if tot: pct=covered/tot*100.0
+if pct is None:
+    print("[CI] Line coverage: not found")
+    print("- Line coverage: not found")
+    sys.exit(1)
+else:
+    print(f"[CI] Line coverage: {pct:.2f}%")
+    print(f"- Line coverage: {pct:.2f}%")
+    minv=float(os.environ.get("COVERAGE_MIN","18"))
+    if pct < minv: sys.exit(1)
+PY
