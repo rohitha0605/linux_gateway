@@ -1,10 +1,8 @@
 name: afl-nightly
 on:
-  schedule:
-    - cron: "0 3 * * *"
+  schedule: [ { cron: "0 3 * * *" } ]
   workflow_dispatch: {}
-permissions:
-  contents: read
+permissions: { contents: read }
 
 jobs:
   afl:
@@ -12,6 +10,9 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
 
       - name: Install AFL++ (QEMU mode)
         run: |
@@ -21,18 +22,18 @@ jobs:
       - name: Build target
         run: cargo build --release
 
-      - name: Bootstrap seed corpus (if missing)
+      - name: Ensure seed corpus
         run: |
-          if ! [ -d fuzz/seeds ] || ! ls -1 fuzz/seeds/* >/dev/null 2>&1; then
-            mkdir -p fuzz/seeds
-            echo "00" > fuzz/seeds/min.hex
-          fi
+          mkdir -p fuzz/seeds
+          ls -1 fuzz/seeds/* >/dev/null 2>&1 || echo 00 > fuzz/seeds/min.hex
 
       - name: Fuzz 20m (non-blocking)
         run: |
           mkdir -p fuzz/out
           afl-fuzz -Q -V 1200 -i fuzz/seeds -o fuzz/out -- \
             target/release/linux_gateway --decode @@ || true
+          # always have at least one file so upload-artifact doesn't error
+          touch fuzz/out/.keep
 
       - name: Upload AFL output
         if: always()
@@ -40,3 +41,4 @@ jobs:
         with:
           name: afl-out-${{ github.run_id }}
           path: fuzz/out/**
+          if-no-files-found: warn
