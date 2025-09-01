@@ -1,0 +1,42 @@
+name: afl-nightly
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch: {}
+permissions:
+  contents: read
+
+jobs:
+  afl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install AFL++ (QEMU mode)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y afl++ clang qemu-user-static
+
+      - name: Build target
+        run: cargo build --release
+
+      - name: Bootstrap seed corpus (if missing)
+        run: |
+          if ! [ -d fuzz/seeds ] || ! ls -1 fuzz/seeds/* >/dev/null 2>&1; then
+            mkdir -p fuzz/seeds
+            echo "00" > fuzz/seeds/min.hex
+          fi
+
+      - name: Fuzz 20m (non-blocking)
+        run: |
+          mkdir -p fuzz/out
+          afl-fuzz -Q -V 1200 -i fuzz/seeds -o fuzz/out -- \
+            target/release/linux_gateway --decode @@ || true
+
+      - name: Upload AFL output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: afl-out-${{ github.run_id }}
+          path: fuzz/out/**
