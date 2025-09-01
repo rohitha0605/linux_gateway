@@ -32,7 +32,7 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_run" ]; then
             RID="${{ github.event.workflow_run.id }}"
           fi
-          if [ -z "${RID}" ] && [ -n "${{ inputs.run_id || '' }}" ]; then
+          if [ -z "${RID}" ] && [ -n "${{ inputs.run_id }}" ]; then
             RID="${{ inputs.run_id }}"
           fi
           if [ -z "${RID}" ]; then
