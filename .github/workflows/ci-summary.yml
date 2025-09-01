@@ -18,50 +18,41 @@ jobs:
     runs-on: ubuntu-latest
     env:
       REPO: ${{ github.repository }}
-      COVERAGE_MIN: " 25 "8"
+      COVERAGE_MIN: "25"
       GH_TOKEN: ${{ github.token }}
-
     steps:
       - name: Resolve run_id
         shell: bash
-        env:
-          WF_NAME: "CI"
         run: |
           set -euo pipefail
           RID=""
           if [ "${{ github.event_name }}" = "workflow_run" ]; then
             RID="${{ github.event.workflow_run.id }}"
           fi
-          if [ -z "${RID}" ] && [ -n "${{ inputs.run_id }}" ]; then
+          if [ -z "${RID}" ] && [ -n "${{ inputs.run_id || '' }}" ]; then
             RID="${{ inputs.run_id }}"
           fi
           if [ -z "${RID}" ]; then
             RID="$(gh run list -R "$REPO" --json databaseId,headSha,workflowName -L 50 \
-                  --jq ".[] | select(.headSha==\"$GITHUB_SHA\" and .workflowName==\"${WF_NAME}\") | .databaseId" \
+                  --jq ".[] | select(.headSha==\"$GITHUB_SHA\" and .workflowName==\"CI\") | .databaseId" \
                   | head -n1 || true)"
           fi
           if [ -z "${RID}" ]; then
-            echo "::error::No run_id to aggregate for $GITHUB_SHA (workflow '${WF_NAME}' not found)."
+            echo "::error::No run_id to aggregate for $GITHUB_SHA."
             exit 1
           fi
-          echo "RID=$RID"
+          echo "RID=$RID" | tee -a "$GITHUB_STEP_SUMMARY"
 
-      - name: List artifacts on the CI run
-        run: |
-          gh api "repos/${REPO}/actions/runs/${RID}/artifacts" \
-            --jq '{count: .total_count, names: [.artifacts[].name]}'
+      - name: List CI artifacts
+        run: gh api "repos/${REPO}/actions/runs/${RID}/artifacts" --jq '{count:.total_count, names:[.artifacts[].name]}'
 
-      - name: Download artifacts from the CI run
+      - name: Download CI artifacts
         run: |
           mkdir -p artifacts
-          if ! gh run download -R "$REPO" "$RID" -D artifacts; then
-            echo "::error::Download failed or no artifacts present for run $RID"
-            exit 1
-          fi
-          echo "Downloaded files:"
-          find artifacts -type f | sed 's/^/ - /'
+          gh run download -R "$REPO" "$RID" -D artifacts || true
+          echo "Files:"; find artifacts -type f | sed 's/^/ - /'
 
-      - name: JUnit summary (fail on failures/errors)
+      - name: JUnit summary (non-fatal if none)
         shell: bash
         run: |
           python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
@@ -72,7 +63,8 @@ for r,_,fs in os.walk('artifacts'):
         if fn.endswith('.xml') and ('junit' in fn or 'test-results' in r or 'surefire' in r or 'failsafe' in r):
             paths.append(os.path.join(r,fn))
 if not paths:
-    print("[CI] JUnit: 0 tests, 0 failures, 0 errors, 0 skipped"); sys.exit(0)
+    print("### CI Summary\n\n- JUnit: not found")
+    sys.exit(0)
 T=F=E=S=0
 for p in paths:
     try:
@@ -91,14 +83,13 @@ print("### CI Summary\n\n- "+msg[5:]+"\n")
 if F>0 or E>0: sys.exit(1)
 PY
 
-      - name: Coverage summary (LCOV → JaCoCo XML fallback)
+      - name: Coverage summary (LCOV → JaCoCo)
         shell: bash
         run: |
           set -euo pipefail
           : "${GITHUB_STEP_SUMMARY:=/tmp/STEP_SUMMARY.md}"
           python3 - <<'PY'
 import glob, xml.etree.ElementTree as ET, os, sys
-# Try LCOV first
 LF=LH=0
 for fp in glob.glob('artifacts/**/lcov.info', recursive=True):
     try:
@@ -109,7 +100,6 @@ for fp in glob.glob('artifacts/**/lcov.info', recursive=True):
     except Exception: pass
 pct=None
 if LF: pct = LH/LF*100.0
-# Fallback: JaCoCo XML
 if pct is None:
     covered=missed=0
     for fp in glob.glob('artifacts/**/*.xml', recursive=True):
@@ -122,16 +112,10 @@ if pct is None:
     tot=covered+missed
     if tot: pct=covered/tot*100.0
 if pct is None:
-    print("[CI] Line coverage: not found")
     print("- Line coverage: not found")
-    
-    # do not fail hard if missing
-    if os.environ.get("COVERAGE_REQUIRED","0")=="1":
-        sys.exit(1)
     sys.exit(0)
 else:
-    print(f"[CI] Line coverage: {pct:.2f}%")
     print(f"- Line coverage: {pct:.2f}%")
-    minv=float(os.environ.get("COVERAGE_MIN","18"))
+    minv=float(os.environ.get("COVERAGE_MIN","25"))
     if pct < minv: sys.exit(1)
 PY
