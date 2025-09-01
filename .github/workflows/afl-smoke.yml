@@ -1,43 +1,47 @@
 name: afl-smoke
+
 on:
-  push:
-    branches: [main]
-  pull_request:
-permissions:
-  contents: read
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
 jobs:
   afl:
-    continue-on-error: true
-    continue-on-error: true
-  afl:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 6
+    continue-on-error: true
+
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Install AFL++ + qemu-user-static
+
+      - name: Install deps
         run: |
           sudo apt-get update
           sudo apt-get install -y afl++ qemu-user-static
-      - name: Build (debug)
-        run: cargo build
-      - name: AFL smoke (QEMU mode, ~60s, non-blocking)
-        continue-on-error: true
-        env:
-          AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES: "1"
-          AFL_SKIP_CPUFREQ: "1"
+          rustup toolchain install stable
+          rustup default stable
+
+      - name: Build (release)
+        run: cargo build --release
+
+      - name: Seed corpus
         run: |
-          mkdir -p findings
-          printf "" > tests/corpus/empty
-          printf "\x01\x02\x03" > tests/corpus/small
-          printf "\xFF\x00\xAA\x55" > tests/corpus/pattern
-          cat > scripts/afl_decode.sh <<'SH'
-#!/usr/bin/env bash
-set -euo pipefail
-HEX="$(xxd -p -c 999999 "$1" | tr -d '\n\r\t ')"
-./target/debug/linux_gateway --decode="$HEX" >/dev/null 2>&1 || true
-./target/debug/linux_gateway --decode="0x$HEX" >/dev/null 2>&1 || true
-SH
-          chmod +x scripts/afl_decode.sh
-          timeout 60s afl-fuzz -Q -i tests/corpus -o findings -- ./scripts/afl_decode.sh @@ || true || true
+          mkdir -p seeds
+          printf "00\n"   > seeds/00.hex
+          printf "0A0B\n" > seeds/ab.hex
+
+      - name: AFL for 60s (tolerant)
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          timeout 60s afl-fuzz -i seeds -o out -- ./target/release/linux_gateway --decode @@ || true
+
+      - name: Upload AFL output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: afl-out-${{ github.run_id }}
+          path: out
+          if-no-files-found: ignore
+          retention-days: 7
