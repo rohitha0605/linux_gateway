@@ -1,10 +1,11 @@
 name: afl-nightly
 on:
-  schedule:
-    - cron: "0 3 * * *"
+  schedule: [ { cron: "0 3 * * *" } ]   # 03:00 UTC nightly
   workflow_dispatch: {}
+
 permissions:
   contents: read
+  issues: write
 
 jobs:
   afl:
@@ -14,21 +15,15 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-
-      - name: Install AFL++ & protoc
+      - name: Install deps (AFL++ & protoc)
         run: |
           sudo apt-get update
           sudo apt-get install -y afl++ clang protobuf-compiler
-
       - name: Build target (release)
         run: cargo build --release
-
-      - name: Seed corpus
-        run: |
-          mkdir -p fuzz/seeds
-          printf '0A0B0C\n0001020304\n' > fuzz/seeds/seed.txt
-
-      - name: Fuzz 20m (non-blocking)
+      - name: Ensure seeds
+        run: mkdir -p fuzz/seeds
+      - name: Fuzz for 20 minutes (non-blocking)
         env:
           AFL_SKIP_CPUFREQ: "1"
           AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES: "1"
@@ -37,21 +32,31 @@ jobs:
           mkdir -p fuzz/out
           afl-fuzz -V 1200 -i fuzz/seeds -o fuzz/out -- \
             target/release/linux_gateway --decode @@ || true
-
-      - name: Tar AFL output (always)
+      - name: Tar AFL output
         if: always()
+        id: pack
         run: |
-          mkdir -p artifacts
-          if [ -d fuzz/out ]; then
-            tar -C fuzz -czf artifacts/afl-out-${GITHUB_RUN_ID}.tgz out
+          mkdir -p upload
+          tar -czf "upload/afl-out-${GITHUB_RUN_ID}.tgz" -C fuzz/out .
+          if compgen -G "fuzz/out/crashes/*" > /dev/null; then
+            echo "has_crashes=yes" >> "$GITHUB_OUTPUT"
+            echo "crash_count=$(find fuzz/out/crashes -type f | wc -l | tr -d ' ')" >> "$GITHUB_OUTPUT"
           else
-            tar -czf artifacts/afl-out-${GITHUB_RUN_ID}.tgz --files-from /dev/null
+            echo "has_crashes=no" >> "$GITHUB_OUTPUT"
+            echo "crash_count=0" >> "$GITHUB_OUTPUT"
           fi
-
-      - name: Upload AFL archive (always)
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
         with:
           name: afl-out-${{ github.run_id }}
-          path: artifacts/afl-out-${{ github.run_id }}.tgz
-          compression-level: 0
+          path: upload/*.tgz
+      - name: File issue if crashes
+        if: steps.pack.outputs.has_crashes == 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create \
+            --title "AFL crash: ${{ steps.pack.outputs.crash_count }} inputs (nightly $GITHUB_RUN_ID)" \
+            --body  "Nightly AFL found **${{ steps.pack.outputs.crash_count }}** crashing inputs.
+                     Artifact: \`afl-out-$GITHUB_RUN_ID\`" \
+            --label bug,security,fuzzing
