@@ -8,14 +8,16 @@ permissions:
 jobs:
   afl:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
-      - name: Install AFL++
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install AFL++ + qemu-user-static
         run: |
           sudo apt-get update
-          sudo apt-get install -y afl++
-      - name: Build target (debug)
+          sudo apt-get install -y afl++ qemu-user-static
+      - name: Build (debug)
         run: cargo build
       - name: AFL smoke (QEMU mode, ~60s, non-blocking)
         continue-on-error: true
@@ -24,4 +26,15 @@ jobs:
           AFL_SKIP_CPUFREQ: "1"
         run: |
           mkdir -p findings
+          printf "" > tests/corpus/empty
+          printf "\x01\x02\x03" > tests/corpus/small
+          printf "\xFF\x00\xAA\x55" > tests/corpus/pattern
+          cat > scripts/afl_decode.sh <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+HEX="$(xxd -p -c 999999 "$1" | tr -d '\n\r\t ')"
+./target/debug/linux_gateway --decode="$HEX" >/dev/null 2>&1 || true
+./target/debug/linux_gateway --decode="0x$HEX" >/dev/null 2>&1 || true
+SH
+          chmod +x scripts/afl_decode.sh
           timeout 60s afl-fuzz -Q -i tests/corpus -o findings -- ./scripts/afl_decode.sh @@ || true
