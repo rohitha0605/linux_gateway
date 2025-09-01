@@ -190,3 +190,5 @@ pub fn decode_calc_request(
 
     Ok(proto::rpmsg::calc::v1::CalcRequest::decode(payload)?)
 }
+pub mod wire;
+pub use wire::{build_frame, parse_and_verify, WireError};
