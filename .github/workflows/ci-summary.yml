@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       REPO: ${{ github.repository }}
-      COVERAGE_MIN: "18"
+      COVERAGE_MIN: "50"8"
       GH_TOKEN: ${{ github.token }}
 
     steps:
