@@ -19,10 +19,10 @@ jobs:
       - name: Build host smoke
         run: make -C r5 clean host-smoke
       - name: Run host smoke
-        run: ./r5/host_smoke
+        run: ./r5/host-smoke
       - name: Upload binary (debugging)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: r5-host-smoke
-          path: r5/host_smoke
+          path: r5/host-smoke

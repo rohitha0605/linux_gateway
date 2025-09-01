@@ -20,7 +20,7 @@ jobs:
       - name: Install deps (AFL++)
         run: |
           sudo apt-get update
-          sudo apt-get install -y afl++ clang
+          sudo apt-get install -y afl++ clang protobuf-compiler protobuf-compiler
       - name: Build release target
         run: cargo build --release
       - name: Seed corpus (exists-ok)

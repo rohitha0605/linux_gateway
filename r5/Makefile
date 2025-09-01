@@ -11,6 +11,6 @@ host-smoke: calc.pb-c.c host_roundtrip.c echo_calc.c
 	$(CC) -O2 -o $@ $^ $(CFLAGS) $(LIBS)
 
 clean:
-	rm -f host_smoke *.o calc.pb-c.c calc.pb-c.h
+	rm -f host-smoke *.o calc.pb-c.c calc.pb-c.h
 
 .PHONY: all clean
