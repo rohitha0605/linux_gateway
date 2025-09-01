@@ -1,44 +1,47 @@
 name: afl-nightly
 on:
-  schedule: [ { cron: "0 3 * * *" } ]
+  schedule:
+    - cron: "0 3 * * *"   # 03:00 UTC nightly
   workflow_dispatch: {}
-permissions: { contents: read }
+
+permissions:
+  contents: read
 
 jobs:
   afl:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
-      - name: Install AFL++ (QEMU mode)
+      - name: Install AFL++
         run: |
           sudo apt-get update
-          sudo apt-get install -y afl++ clang qemu-user-static
+          sudo apt-get install -y afl++ clang
 
-      - name: Build target
+      - name: Build target (release)
         run: cargo build --release
 
-      - name: Ensure seed corpus
+      - name: Seed corpus
         run: |
           mkdir -p fuzz/seeds
-          ls -1 fuzz/seeds/* >/dev/null 2>&1 || echo 00 > fuzz/seeds/min.hex
+          printf '0A0B0C\n0001020304\n' > fuzz/seeds/seed.txt
 
-      - name: Fuzz 20m (non-blocking)
+      - name: Fuzz for 20 minutes (non-blocking)
+        env:
+          AFL_SKIP_CPUFREQ: "1"
+          AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES: "1"
+          AFL_NO_UI: "1"
         run: |
           mkdir -p fuzz/out
-          afl-fuzz -Q -V 1200 -i fuzz/seeds -o fuzz/out -- \
+          afl-fuzz -V 1200 -i fuzz/seeds -o fuzz/out -- \
             target/release/linux_gateway --decode @@ || true
-          # always have at least one file so upload-artifact doesn't error
-          touch fuzz/out/.keep
 
-      - name: Upload AFL output
+      - name: Upload AFL output (always)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: afl-out-${{ github.run_id }}
           path: fuzz/out/**
-          if-no-files-found: warn
