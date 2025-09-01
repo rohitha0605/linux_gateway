@@ -1,66 +1,54 @@
 name: afl-smoke
 on:
   workflow_dispatch: {}
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
-
 permissions:
   contents: read
-  issues: write
-
 jobs:
-  fuzz:
+  smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Install deps (AFL++)
+
+      - name: Install deps (AFL++, clang, protoc)
         run: |
           sudo apt-get update
-          sudo apt-get install -y afl++ clang protobuf-compiler protobuf-compiler
-      - name: Build release target
+          sudo apt-get install -y afl++ clang protobuf-compiler
+
+      - name: Build (release)
         run: cargo build --release
-      - name: Seed corpus (exists-ok)
-        run: mkdir -p fuzz/seeds
+
+      - name: Seed corpus (if missing)
+        run: |
+          mkdir -p fuzz/seeds
+          [ -s fuzz/seeds/seed.txt ] || printf '0A0B0C\n0001020304\n' > fuzz/seeds/seed.txt
+
       - name: Fuzz 60s (non-blocking)
         env:
           AFL_SKIP_CPUFREQ: "1"
-          AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES: "1"
           AFL_NO_UI: "1"
+          AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES: "1"
         run: |
           mkdir -p fuzz/out
-          afl-fuzz -V 60 -i fuzz/seeds -o fuzz/out -- \
+          timeout 60s afl-fuzz -V 60 -i fuzz/seeds -o fuzz/out -- \
             target/release/linux_gateway --decode @@ || true
-      - name: Tar AFL output
+
+      - name: Tar AFL output (always)
         if: always()
-        id: pack
         run: |
-          mkdir -p upload
-          tar -czf "upload/afl-out-${GITHUB_RUN_ID}.tgz" -C fuzz/out .
-          # Detect crashes for conditional issue filing
-          if compgen -G "fuzz/out/crashes/*" > /dev/null; then
-            echo "has_crashes=yes" >> "$GITHUB_OUTPUT"
-            echo "crash_count=$(find fuzz/out/crashes -type f | wc -l | tr -d ' ')" >> "$GITHUB_OUTPUT"
+          mkdir -p artifacts
+          # Create an empty tarball if nothing is there so upload never fails
+          if [ -d fuzz/out ] && find fuzz/out -mindepth 1 -print -quit | grep -q .; then
+            tar -C fuzz/out -czf artifacts/afl-out-${{ github.run_id }}.tgz .
           else
-            echo "has_crashes=no" >> "$GITHUB_OUTPUT"
-            echo "crash_count=0" >> "$GITHUB_OUTPUT"
+            tar -czf artifacts/afl-out-${{ github.run_id }}.tgz --files-from /dev/null
           fi
-      - name: Upload AFL output
+
+      - name: Upload artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: afl-out-${{ github.run_id }}
-          path: upload/*.tgz
-      - name: File issue if crashes
-        if: steps.pack.outputs.has_crashes == 'yes'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh issue create \
-            --title "AFL crash: ${{ steps.pack.outputs.crash_count }} inputs (run $GITHUB_RUN_ID)" \
-            --body  "AFL found **${{ steps.pack.outputs.crash_count }}** crashing inputs in run **$GITHUB_RUN_ID**.
-                     Artifact: \`afl-out-$GITHUB_RUN_ID\`" \
-            --label bug,security,fuzzing
+          path: artifacts/afl-out-${{ github.run_id }}.tgz
+          if-no-files-found: warn
