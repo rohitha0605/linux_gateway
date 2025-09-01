@@ -1,7 +1,7 @@
 name: afl-nightly
 on:
   schedule:
-    - cron: "0 3 * * *"   # 03:00 UTC nightly
+    - cron: "0 3 * * *"
   workflow_dispatch: {}
 
 permissions:
@@ -44,4 +44,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: afl-out-${{ github.run_id }}
-          path: fuzz/out/**
+          path: fuzz/out/
+          if-no-files-found: ignore
