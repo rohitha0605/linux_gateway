@@ -217,3 +217,5 @@ pub fn decode_calc_request(
 
     proto::rpmsg::calc::v1::CalcRequest::decode(payload).map_err(|_| FrameError::Decode)
 }
+pub mod wire;
+pub use wire::{build_frame, parse_and_verify, WireError};
