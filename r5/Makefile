@@ -1,37 +1,36 @@
-PROTO_DIR := ../proto
-PROTO := $(PROTO_DIR)/calc.proto
-GEN_C := calc.pb-c.c
-GEN_H := calc.pb-c.h
+BREW_PREFIX ?= $(shell brew --prefix protobuf-c 2>/dev/null || echo /opt/homebrew/opt/protobuf-c)
 
-PKG_CFLAGS := $(shell pkg-config --cflags protobuf-c 2>/dev/null)
-PKG_LIBS   := $(shell pkg-config --libs protobuf-c 2>/dev/null)
-ifeq ($(PKG_CFLAGS),)
-  PKG_CFLAGS := -I/opt/homebrew/include
+# Prefer pkg-config if available; otherwise fall back to Homebrew paths
+ifneq ($(shell command -v pkg-config >/dev/null 2>&1 && echo yes),)
+  ifeq ($(shell pkg-config --exists protobuf-c && echo yes),yes)
+    PKG_CFLAGS := $(shell pkg-config --cflags protobuf-c)
+    PKG_LIBS   := $(shell pkg-config --libs   protobuf-c)
+  else
+    PKG_CFLAGS := -I$(BREW_PREFIX)/include
+    PKG_LIBS   := -L$(BREW_PREFIX)/lib -lprotobuf-c
+  endif
+else
+  PKG_CFLAGS := -I$(BREW_PREFIX)/include
+  PKG_LIBS   := -L$(BREW_PREFIX)/lib -lprotobuf-c
 endif
-ifeq ($(PKG_LIBS),)
-  PKG_LIBS := -L/opt/homebrew/lib -lprotobuf-c
-endif
+
+CFLAGS ?= -O2 -DTEST_STANDALONE
 
 all: host-smoke
 
-$(GEN_C) $(GEN_H): $(PROTO)
-	@set -e; \
-	if command -v protoc-c >/dev/null 2>&1; then \
-	  protoc-c -I $(PROTO_DIR) --c_out=. $(PROTO); \
-	elif command -v protoc >/devnull 2>&1 && command -v protoc-gen-c >/dev/null 2>&1; then \
-	  protoc -I $(PROTO_DIR) --plugin=protoc-gen-c=$$(command -v protoc-gen-c) --c_out=. $(PROTO); \
-	else \
-	  echo "Need protoc-c or protoc+protoc-gen-c"; exit 1; \
-	fi
+host-smoke: echo.o calc.pb-c.o
+	$(CC) $(CFLAGS) $^ $(PKG_LIBS) -o $@
 
-CFLAGS := -O2 $(PKG_CFLAGS)
-LDFLAGS := $(PKG_LIBS)
+echo.o: echo.c calc.pb-c.h
+	$(CC) $(CFLAGS) $(PKG_CFLAGS) -c $< -o $@
 
-host-smoke: echo.o $(GEN_C)
-	$(CC) -o $@ echo.o $(GEN_C) $(LDFLAGS)
+calc.pb-c.o: calc.pb-c.c calc.pb-c.h
+	$(CC) $(CFLAGS) $(PKG_CFLAGS) -c $< -o $@
 
-echo.o: echo.c $(GEN_H)
-	$(CC) $(CFLAGS) -DTEST_STANDALONE -c echo.c -o echo.o
+calc.pb-c.c calc.pb-c.h: ../proto/calc.proto
+	protoc -I ../proto --plugin=protoc-gen-c=$(shell command -v protoc-gen-c) --c_out=. $<
 
 clean:
-	rm -f host-smoke echo.o $(GEN_C) $(GEN_H)
+	rm -f host-smoke *.o calc.pb-c.c calc.pb-c.h
+
+.PHONY: all clean
