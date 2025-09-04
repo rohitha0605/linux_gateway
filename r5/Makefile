@@ -1,30 +1,29 @@
-.PHONY: all clean
-CC      ?= cc
-CFLAGS  ?= -O2
-PROTO    = ../proto/calc.proto
+PROTO_DIR := ../proto
+PROTO     := $(PROTO_DIR)/calc.proto
+GEN_C     := calc.pb-c.c
+GEN_H     := calc.pb-c.h
 
-# Homebrew prefix (mac) or /opt/homebrew as default
-BREW_PREFIX := $(shell brew --prefix 2>/dev/null || echo /opt/homebrew)
+PKG ?= pkg-config
+CFLAGS += -O2 -DTEST_STANDALONE $(shell $(PKG) --cflags protobuf-c 2>/dev/null)
+LDLIBS += $(shell $(PKG) --libs protobuf-c 2>/dev/null)
 
-# Prefer pkg-config; fall back to common Homebrew include/lib dirs
-PKG_CFLAGS := $(shell pkg-config --cflags protobuf-c 2>/dev/null)
-PKG_LIBS   := $(shell pkg-config --libs   protobuf-c 2>/dev/null)
-CFLAGS     += $(if $(PKG_CFLAGS),$(PKG_CFLAGS),-I$(BREW_PREFIX)/include)
-LDLIBS     += $(if $(PKG_LIBS),$(PKG_LIBS),-L$(BREW_PREFIX)/lib -lprotobuf-c)
-
-PROTOC       ?= protoc
-PROTOC_GEN_C ?= $(shell command -v protoc-gen-c || echo protoc-gen-c)
+# Homebrew fallback (macOS dev boxes)
+ifeq ($(shell $(PKG) --exists protobuf-c || echo no),no)
+CFLAGS += -I/opt/homebrew/include
+LDLIBS += -L/opt/homebrew/lib -lprotobuf-c
+endif
 
 all: host-smoke
 
-calc.pb-c.c calc.pb-c.h: $(PROTO)
-	$(PROTOC) -I ../proto --plugin=protoc-gen-c=$(PROTOC_GEN_C) --c_out=. $(PROTO)
+$(GEN_C) $(GEN_H): $(PROTO)
+	@which protoc >/dev/null || { echo "need protoc"; exit 1; }
+	@which protoc-gen-c >/dev/null || { echo "need protoc-gen-c"; exit 1; }
+	protoc -I $(PROTO_DIR) --c_out=. --plugin=protoc-gen-c=$(shell which protoc-gen-c) $(PROTO)
 
-echo.o: echo.c calc.pb-c.h
-calc.pb-c.o: calc.pb-c.c calc.pb-c.h
+echo.o: echo.c $(GEN_H)
 
-host-smoke: echo.o calc.pb-c.o
-	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
+host-smoke: echo.o $(GEN_C)
+	$(CC) $(CFLAGS) -o $@ echo.o $(GEN_C) $(LDLIBS)
 
 clean:
-	rm -f host-smoke *.o calc.pb-c.c calc.pb-c.h
+	rm -f *.o host-smoke $(GEN_C) $(GEN_H)
