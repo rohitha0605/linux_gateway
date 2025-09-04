@@ -1,19 +1,13 @@
 syntax = "proto3";
 package rpmsg.calc.v1;
 
-message TraceHeader {
-  bytes  id      = 1; // 16 bytes trace_id
-  uint64 ts_ns   = 2; // timestamp (ns)
-  bytes  span_id = 3; // 8 bytes span_id
-}
-
 message CalcRequest {
-  uint32 a = 1;
-  uint32 b = 2;
-  TraceHeader trace = 3;
+  enum Op { Sum = 0; Sub = 1; Mul = 2; Div = 3; }
+  Op op   = 1;   // varint (enum)
+  uint32 a = 2;  // varint
+  uint32 b = 3;  // varint
 }
 
 message CalcResponse {
-  uint32 sum = 1;
-  TraceHeader trace = 2;
+  uint32 result = 1; // varint
 }
