@@ -1,13 +1,18 @@
 name: r5-smoke
 on:
-  workflow_dispatch: {}
-permissions:
-  contents: read
+  workflow_dispatch:
 jobs:
   r5:
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-      - name: Placeholder
-        run: echo "R5 skeleton TODO; this job intentionally non-blocking."
+      - name: Install deps (protoc + plugin + headers)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler protobuf-c-compiler libprotobuf-c-dev build-essential pkg-config
+      - name: Build
+        run: make -C r5 all V=1
+      - name: Run smoke (expect 42)
+        run: |
+          ./r5/host-smoke | tee /tmp/out.txt
+          test "$(cat /tmp/out.txt)" = "42"
