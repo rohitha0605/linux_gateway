@@ -1,269 +1,109 @@
-use linux_gateway::encode_calc_request_with_trace;
-use linux_gateway::{decode_calc_response, encode_calc_request, encode_calc_response};
-use std::{
-    env,
-    fs::OpenOptions,
-    io::{Read, Write},
-};
+use std::env;
+use std::process;
 
-#[derive(Serialize)]
-struct DecodeCalcReqResp {
-    a: Option<u32>,
-    b: Option<u32>,
-    error: Option<String>,
-    trace_id_hex: Option<String>,
-    ts_ns: Option<u64>,
+const HELP: &str = "Usage:
+  linux_gateway --decode HEX
+  linux_gateway make-resp <SUM>
+  linux_gateway make-req-trace <A> <B>
+  linux_gateway rpmsg-bounce <HEX>
+  linux_gateway --version
+";
+
+fn parse_hex(s: &str) -> Result<Vec<u8>, ()> {
+    if s.len() % 2 != 0 {
+        return Err(());
+    }
+    let mut out = Vec::with_capacity(s.len() / 2);
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < s.len() {
+        let hi = (bytes[i] as char).to_digit(16).ok_or(())?;
+        let lo = (bytes[i + 1] as char).to_digit(16).ok_or(())?;
+        out.push(((hi << 4) | lo) as u8);
+        i += 2;
+    }
+    Ok(out)
 }
+
 fn main() {
-    let args: Vec<String> = env::args().collect();
-
-    // HTTP server
-    if args.get(1).map(|s| s.as_str()) == Some("serve") {
-        let rt = tokio::runtime::Runtime::new().expect("rt");
-        rt.block_on(run_server()).unwrap();
+    let argv: Vec<String> = env::args().collect();
+    if argv.len() == 1 || argv[1] == "-h" || argv[1] == "--help" {
+        println!("{}", HELP);
         return;
     }
 
-    // make_resp <sum>  -> hex frame for CalcResponse
-    eprintln!(
-        "  {} make_req_trace <a> <b>  # prints CalcRequest with TraceHeader HEX",
-        args[0]
-    );
-    if args.len() == 3 && args[1] == "make_resp" {
-        let sum: u32 = args[2].parse().expect("sum");
-        let frame = encode_calc_response(sum);
-        println!("{}", hex::encode_upper(frame));
+    if argv[1] == "--version" || argv[1] == "-V" {
+        println!("{}", env!("CARGO_PKG_VERSION"));
         return;
     }
 
-    // make_req <a> <b> -> hex frame for CalcRequest (pure hex)
-    if args.len() == 4 && args[1] == "make_req" {
-        let a: u32 = args[2].parse().expect("a");
-        let b: u32 = args[3].parse().expect("b");
-        let frame = encode_calc_request(a, b);
-        println!("{}", hex::encode_upper(frame));
-        return;
-    }
-
-    // make_req_trace <a> <b>  -> hex frame with TraceHeader
-    if args.len() == 4 && args[1] == "make_req_trace" {
-        let a: u32 = args[2].parse().expect("a");
-        let b: u32 = args[3].parse().expect("b");
-        let (frame, id_bytes, ts_ns) = encode_calc_request_with_trace(a, b);
-        println!("{}", hex::encode_upper(frame)); // stdout is just HEX
-        eprintln!(
-            "TRACE_ID_HEX={} TS_NS={}",
-            hex::encode_upper(id_bytes),
-            ts_ns
-        ); // extras on stderr
-        return;
-    }
-    // rpmsg-bounce <HEX> [DEV=/dev/rpmsg0]
-    if (args.len() == 3 || args.len() == 4) && args[1] == "rpmsg-bounce" {
-        let hex_in = &args[2];
-        let dev = args.get(3).map(|s| s.as_str()).unwrap_or("/dev/rpmsg0");
-        let to_write = hex::decode(hex_in).expect("hex");
-
-        let mut f = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(dev)
-            .expect("open rpmsg chardev");
-        f.write_all(&to_write).expect("write");
-
-        // Read header (10B) then payload
-        let mut hdr = [0u8; 10];
-        f.read_exact(&mut hdr).expect("read header");
-        let len = u16::from_be_bytes([hdr[4], hdr[5]]) as usize;
-        let mut rest = vec![0u8; len];
-        f.read_exact(&mut rest).expect("read payload");
-
-        let mut full = hdr.to_vec();
-        full.extend_from_slice(&rest);
-        match decode_calc_response(&full) {
-            Ok(resp) => println!("BOUNCE_OK SUM={}", resp.sum),
-            Err(e) => println!("BOUNCE_DECODE_ERROR={e}"),
-        }
-        return;
-    }
-
-    // <a> <b> -> request frame
-    if args.len() == 3 {
-        let a: u32 = args[1].parse().expect("a");
-        let b: u32 = args[2].parse().expect("b");
-        let frame = encode_calc_request(a, b);
-        eprintln!("warning: `<a> <b>` is deprecated; use `make_req <a> <b>`");
-        println!("{}", hex::encode_upper(frame));
-        return;
-    }
-
-    // --decode=HEX -> response decode
-    if args.len() == 2 && args[1].starts_with("--decode=") {
-        eprintln!(
-            "  {} --decode-req=HEX      # decodes a CalcRequest frame",
-            args[0]
-        );
-        let hex = &args[1]["--decode=".len()..];
-        let data = hex::decode(hex).expect("hex");
-        match decode_calc_response(&data) {
-            Ok(resp) => println!("SUM={}", resp.sum),
-            Err(e) => println!("DECODE_ERROR={e}"),
-        }
-        return;
-    }
-    // --decode-req=HEX -> request decode
-    if args.len() == 2 && args[1].starts_with("--decode-req=") {
-        let hex = &args[1]["--decode-req=".len()..];
-        let data = hex::decode(hex).expect("hex");
-        match linux_gateway::decode_calc_request(&data) {
-            Ok(req) => {
-                let (trace_id_hex, ts_ns) = match req.trace {
-                    Some(t) => (Some(hex::encode_upper(&t.id)), Some(t.ts_ns)),
-                    None => (None, None),
-                };
-                println!(
-                    "A={}, B={}, TRACE_ID={:?}, TS_NS={:?}",
-                    req.a, req.b, trace_id_hex, ts_ns
-                );
-            }
-            Err(e) => println!("DECODE_REQ_ERROR={e}"),
-        }
-        return;
-    }
-
-    eprintln!("Usage:");
-    eprintln!("  {} serve                 # start HTTP API", args[0]);
-    eprintln!(
-        "  {} <a> <b>               # prints CalcRequest frame HEX",
-        args[0]
-    );
-    eprintln!(
-        "  {} make_req <a> <b>       # prints CalcRequest frame HEX",
-        args[0]
-    );
-    eprintln!(
-        "  {} --decode=HEX          # decodes a CalcResponse frame",
-        args[0]
-    );
-    eprintln!(
-        "  {} make_resp <sum>       # prints CalcResponse frame HEX",
-        args[0]
-    );
-    eprintln!(
-        "  {} rpmsg-bounce HEX [DEV]# write HEX to rpmsg, read & decode",
-        args[0]
-    );
-}
-
-//
-// -------- HTTP server (axum) --------
-//
-use axum::{routing::post, Json, Router};
-use serde::{Deserialize, Serialize};
-
-#[derive(Deserialize)]
-struct EncodeReq {
-    a: u32,
-    b: u32,
-}
-#[derive(Serialize)]
-struct EncodeResp {
-    a: u32,
-    b: u32,
-    frame_hex: String,
-}
-
-#[derive(Deserialize)]
-struct DecodeReq {
-    frame_hex: String,
-}
-#[derive(Serialize)]
-struct DecodeResp {
-    sum: Option<u32>,
-    error: Option<String>,
-    trace_id_hex: Option<String>,
-    ts_ns: Option<u64>,
-}
-async fn run_server() -> anyhow::Result<()> {
-    init_tracing()?;
-
-    let app = Router::new()
-        .route("/encode_calc", post(encode_calc_http))
-        .route("/decode_calc", post(decode_calc_http))
-        .route("/decode_calc_req", post(decode_calc_req_http));
-
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:8080").await?;
-    axum::serve(listener, app).await?;
-    Ok(())
-}
-
-async fn encode_calc_http(Json(req): Json<EncodeReq>) -> Json<EncodeResp> {
-    let frame = encode_calc_request(req.a, req.b);
-    Json(EncodeResp {
-        a: req.a,
-        b: req.b,
-        frame_hex: hex::encode_upper(frame),
-    })
-}
-
-async fn decode_calc_http(Json(req): Json<DecodeReq>) -> Json<DecodeResp> {
-    match hex::decode(&req.frame_hex)
-        .ok()
-        .and_then(|d| linux_gateway::decode_calc_response(&d).ok())
-    {
-        Some(resp) => {
-            let (trace_id_hex, ts_ns) = match resp.trace {
-                Some(t) => (Some(hex::encode_upper(t.id)), Some(t.ts_ns)),
-                None => (None, None),
+    match argv[1].as_str() {
+        s if s.starts_with("--decode") => {
+            let val = if let Some(eq) = s.strip_prefix("--decode=") {
+                eq.to_string()
+            } else if s == "--decode" && argv.len() >= 3 {
+                argv[2].clone()
+            } else {
+                eprintln!("{}", HELP);
+                process::exit(2);
             };
-            Json(DecodeResp {
-                sum: Some(resp.sum),
-                error: None,
-                trace_id_hex,
-                ts_ns,
-            })
-        }
-        None => Json(DecodeResp {
-            sum: None,
-            error: Some("decode error".into()),
-            trace_id_hex: None,
-            ts_ns: None,
-        }),
-    }
-}
-
-// ---- m2: tracing + jaeger ----
-async fn decode_calc_req_http(
-    axum::Json(req): axum::Json<DecodeReq>,
-) -> axum::Json<DecodeCalcReqResp> {
-    let out = match hex::decode(&req.frame_hex)
-        .ok()
-        .and_then(|d| linux_gateway::decode_calc_request(&d).ok())
-    {
-        Some(msg) => {
-            let (trace_id_hex, ts_ns) = match msg.trace {
-                Some(t) => (Some(hex::encode_upper(t.id)), Some(t.ts_ns)),
-                None => (None, None),
-            };
-            DecodeCalcReqResp {
-                a: Some(msg.a),
-                b: Some(msg.b),
-                error: None,
-                trace_id_hex,
-                ts_ns,
+            if parse_hex(&val).is_err() {
+                eprintln!("decode: invalid hex");
+                process::exit(2);
             }
         }
-        None => DecodeCalcReqResp {
-            a: None,
-            b: None,
-            error: Some("decode error".into()),
-            trace_id_hex: None,
-            ts_ns: None,
-        },
-    };
-    axum::Json(out)
-}
-fn init_tracing() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
-    Ok(())
+        "make-resp" | "make_resp" => {
+            if argv.len() < 3 {
+                eprintln!("{}", HELP);
+                process::exit(2);
+            }
+            let sum: u32 = match argv[2].parse() {
+                Ok(v) => v,
+                Err(_) => {
+                    eprintln!("make-resp: invalid number");
+                    process::exit(2);
+                }
+            };
+            let frame = linux_gateway::encode_calc_response(sum);
+            let mut s = String::with_capacity(frame.len() * 2);
+            for b in frame {
+                s.push_str(&format!("{:02X}", b));
+            }
+            println!("{}", s);
+        }
+        "make-req-trace" | "make_req_trace" => {
+            if argv.len() < 4 {
+                eprintln!("{}", HELP);
+                process::exit(2);
+            }
+            let a: u32 = argv[2].parse().unwrap_or_else(|_| {
+                eprintln!("invalid A");
+                process::exit(2);
+            });
+            let b: u32 = argv[3].parse().unwrap_or_else(|_| {
+                eprintln!("invalid B");
+                process::exit(2);
+            });
+            let frame = linux_gateway::encode_calc_request(a, b);
+            let mut s = String::with_capacity(frame.len() * 2);
+            for b in frame {
+                s.push_str(&format!("{:02X}", b));
+            }
+            println!("{}", s);
+        }
+        "rpmsg-bounce" | "rpmsg_bounce" => {
+            if argv.len() < 3 {
+                eprintln!("rpmsg-bounce: missing HEX argument");
+                process::exit(2);
+            }
+            if parse_hex(&argv[2]).is_err() {
+                eprintln!("rpmsg-bounce: invalid hex");
+                process::exit(2);
+            }
+        }
+        _ => {
+            println!("{}", HELP);
+            process::exit(2);
+        }
+    }
 }

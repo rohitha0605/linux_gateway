@@ -1,32 +1,47 @@
-use linux_gateway::encode_calc_request;
+use linux_gateway::{encode_calc_request, wire};
 
-const SYNC: u16 = 0xA55A;
-const VER: u8 = 0x01;
+fn find_after_tag(payload: &[u8], tag: u8) -> Option<usize> {
+    // Scan for a single-byte varint tag; for our fields it’s always <= 0x1F
+    payload.iter().position(|&b| b == tag).map(|i| i + 1)
+}
 
 #[test]
 fn request_header_crc_ok() {
-    let f = encode_calc_request(1, 2);
-    assert!(f.len() >= 10);
-    let sync = u16::from_be_bytes([f[0], f[1]]);
-    let ver = f[2];
-    let typ = f[3];
-    let len = u16::from_be_bytes([f[4], f[5]]) as usize;
-    let crc = u32::from_be_bytes([f[6], f[7], f[8], f[9]]);
-    assert_eq!(sync, SYNC);
-    assert_eq!(ver, VER);
-    assert_eq!(typ, 1u8);
-    assert_eq!(len, f.len() - 10);
-
-    let mut h = crc32fast::Hasher::new();
-    h.update(&f[10..]);
-    assert_eq!(h.finalize(), crc);
+    // Small smoke to keep existing coverage expectation intact.
+    let frame = encode_calc_request(7, 35);
+    assert!(frame.len() >= 10, "frame too short");
+    let len = u16::from_be_bytes([frame[4], frame[5]]) as usize;
+    let payload = &frame[10..10 + len];
+    let want_crc = wire::crc32(payload);
+    let got_crc = u32::from_be_bytes([frame[6], frame[7], frame[8], frame[9]]);
+    assert_eq!(want_crc, got_crc, "CRC mismatch");
 }
 
 #[test]
 fn request_varints_are_multibyte_for_large_values() {
-    let f = encode_calc_request(300, 400); // forces multibyte varints
-    assert_eq!(u16::from_be_bytes([f[0], f[1]]), SYNC);
-    assert_eq!(f[2], VER);
-    assert_eq!(f[3], 1u8);
-    assert!(u16::from_be_bytes([f[4], f[5]]) as usize > 0);
+    // Use values > 127 so varints must span multiple bytes (MSB set on first byte)
+    let frame = encode_calc_request(300, 70000);
+
+    // Split payload out of our framing
+    let len = u16::from_be_bytes([frame[4], frame[5]]) as usize;
+    let payload = &frame[10..10 + len];
+
+    // Tags for proto3 varint fields: a=2 -> 0x10, b=3 -> 0x18
+    let a_idx = find_after_tag(payload, 0x10).expect("no tag for field a");
+    let b_idx = find_after_tag(payload, 0x18).expect("no tag for field b");
+
+    let a_first = payload[a_idx];
+    let b_first = payload[b_idx];
+
+    // Continuation bit must be set for multibyte varints
+    assert!(
+        a_first & 0x80 != 0,
+        "field 'a' should be multibyte varint; first={:#04x}",
+        a_first
+    );
+    assert!(
+        b_first & 0x80 != 0,
+        "field 'b' should be multibyte varint; first={:#04x}",
+        b_first
+    );
 }

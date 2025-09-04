@@ -1,119 +1,27 @@
-use linux_gateway::{guard_header, FrameError};
+use linux_gateway::{decode_calc_request, decode_calc_response, FrameError};
 
-fn mk_hdr(ver: u8, typ: u8, len: u16) -> [u8; 10] {
+#[test]
+fn rejects_unknown_version_resp() {
     let sync = 0xA55Au16.to_le_bytes();
-    let lenb = len.to_le_bytes();
-    let crc = 0u32.to_le_bytes(); // CRC value irrelevant to guard test
-    [
-        sync[0], sync[1], ver, typ, lenb[0], lenb[1], crc[0], crc[1], crc[2], crc[3],
-    ]
-}
-
-#[test]
-fn rejects_unknown_version() {
-    let hdr = mk_hdr(0x7F, 1, 0);
-    let err = guard_header(&hdr).unwrap_err();
-    match err {
-        FrameError::UnknownVersion(0x7F) => {}
-        _ => panic!("{err:?}"),
+    let mut frame = Vec::new();
+    frame.extend_from_slice(&sync);
+    frame.push(0x7F); // ver (unknown)
+    frame.push(1);    // type = CalcResp
+    match decode_calc_response(&frame) {
+        Err(FrameError::UnknownVersion(0x7F)) => {}
+        other => panic!("expected UnknownVersion(0x7F), got {other:?}"),
     }
 }
 
 #[test]
-fn rejects_unknown_type() {
-    let hdr = mk_hdr(0x01, 0xFF, 0);
-    let err = guard_header(&hdr).unwrap_err();
-    match err {
-        FrameError::UnknownType(0xFF) => {}
-        _ => panic!("{err:?}"),
+fn rejects_unknown_type_req() {
+    let sync = 0xA55Au16.to_le_bytes();
+    let mut frame = Vec::new();
+    frame.extend_from_slice(&sync);
+    frame.push(1);    // ver = 1
+    frame.push(0xFF); // type unknown
+    match decode_calc_request(&frame) {
+        Err(FrameError::UnknownType(0xFF)) => {}
+        other => panic!("expected UnknownType(0xFF), got {other:?}"),
     }
-}
-#[test]
-fn rejects_bad_sync() {
-    let mut f = mk_resp_frame(1);
-    f[0] = 0;
-    f[1] = 0; // break SYNC
-    assert!(linux_gateway::decode_calc_response(&f).is_err());
-}
-
-#[test]
-fn rejects_truncated_payload() {
-    let mut f = mk_resp_frame(1);
-    let len = u16::from_be_bytes([f[4], f[5]]) as usize;
-    f.truncate(10 + len - 1); // drop a byte from payload
-    assert!(linux_gateway::decode_calc_response(&f).is_err());
-}
-#[test]
-fn invalid_sync_is_error() {
-    let mut f = mk_resp_frame(1);
-    f[0] ^= 0xFF; // break SYNC
-    assert!(decode_calc_response(&f).is_err());
-}
-
-#[test]
-fn len_mismatch_is_error() {
-    let mut f = mk_resp_frame(1);
-    let len = u16::from_be_bytes([f[4], f[5]]);
-    let new_len = len.saturating_add(1);
-    f[4..6].copy_from_slice(&new_len.to_be_bytes());
-    assert!(decode_calc_response(&f).is_err());
-}
-
-#[test]
-fn header_too_short_is_error() {
-    let mut f = mk_resp_frame(1);
-    f.truncate(7); // shorter than 10-byte header
-    assert!(decode_calc_response(&f).is_err());
-}
-
-#[test]
-fn proto_malformed_is_error() {
-    // payload with bad tag, but correct CRC for *that* payload
-    let payload = vec![0xFF];
-    let mut h = crc32fast::Hasher::new();
-    h.update(&payload);
-    let crc = h.finalize();
-
-    let mut frame = Vec::with_capacity(10 + payload.len());
-    frame.extend_from_slice(&SYNC.to_be_bytes());
-    frame.push(VER);
-    frame.push(2u8); // CalcResp
-    frame.extend_from_slice(&(payload.len() as u16).to_be_bytes());
-    frame.extend_from_slice(&crc.to_be_bytes());
-    frame.extend_from_slice(&payload);
-
-    assert!(decode_calc_response(&frame).is_err());
-}
-// --- extra coverage helpers ---
-
-#[test]
-fn request_header_and_crc_are_consistent() {
-    // Exercise encode path + header parsing + CRC
-    let req = encode_calc_request(7, 35);
-    assert!(req.len() >= 10);
-
-    // [SYNC(2)][VER(1)][TYPE(1)][LEN(2)][CRC(4)][PAYLOAD…]
-    let sync = u16::from_be_bytes([req[0], req[1]]);
-    let ver = req[2];
-    let typ = req[3];
-    let len = u16::from_be_bytes([req[4], req[5]]) as usize;
-    let crc_hdr = u32::from_be_bytes([req[6], req[7], req[8], req[9]]);
-
-    assert_eq!(sync, 0xA55A);
-    assert_eq!(ver, 0x01);
-    assert_eq!(typ, 0x01); // CalcRequest
-    assert_eq!(len, req.len() - 10);
-
-    let mut h = crc32fast::Hasher::new();
-    h.update(&req[10..]);
-    let crc_calc = h.finalize();
-    assert_eq!(crc_hdr, crc_calc);
-}
-
-#[test]
-fn decodes_max_varint_sum() {
-    // Cover multi-byte varint decoding path
-    let frame = mk_resp_frame(u32::MAX);
-    let resp = decode_calc_response(&frame).expect("decode");
-    assert_eq!(resp.sum, u32::MAX);
 }

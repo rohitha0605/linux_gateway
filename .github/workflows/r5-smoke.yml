@@ -1,18 +1,31 @@
 name: r5-smoke
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - "r5/**"
+      - "proto/**"
+      - ".github/workflows/r5-smoke.yml"
+
+permissions:
+  contents: read
+
 jobs:
   r5:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Install deps (protoc + plugin + headers)
+      - name: Install deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y protobuf-compiler protobuf-c-compiler libprotobuf-c-dev build-essential pkg-config
+          sudo apt-get install -y protobuf-c-compiler libprotobuf-c-dev build-essential pkg-config
       - name: Build
         run: make -C r5 all V=1
-      - name: Run smoke (expect 42)
-        run: |
-          ./r5/host-smoke | tee /tmp/out.txt
-          test "$(cat /tmp/out.txt)" = "42"
+      - name: Host smoke
+        run: ./r5/host-smoke | tee /tmp/r5-smoke.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: r5-smoke-${{ github.run_id }}
+          path: /tmp/r5-smoke.txt

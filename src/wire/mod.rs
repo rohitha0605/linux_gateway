@@ -76,3 +76,19 @@ pub fn parse_and_verify(frame: &[u8]) -> Result<(Vec<u8>, u8, u8), WireError> {
 
     Ok((payload.to_vec(), ver, typ))
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrameError {
+    /// CRC mismatch on the payload/frame
+    Crc,
+    /// Length / truncation / type mismatch issues
+    Length,
+}
+
+#[inline]
+pub fn crc32(data: &[u8]) -> u32 {
+    use crc32fast::Hasher;
+    let mut h = Hasher::new();
+    h.update(data);
+    h.finalize()
+}
