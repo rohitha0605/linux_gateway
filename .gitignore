@@ -7,3 +7,7 @@ r5/*.o
 r5/host-smoke
 r5/calc.pb-c.c
 r5/calc.pb-c.h
+r5/*.o
+r5/host-smoke
+r5/calc.pb-c.c
+r5/calc.pb-c.h
