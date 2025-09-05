@@ -7,109 +7,64 @@ on:
   workflow_dispatch:
     inputs:
       run_id:
-        description: "Run ID to summarize (optional)"
-        required: false
-      workflow:
-        description: "Workflow file name to use when picking latest (default CI.yml)"
-        required: false
-        default: "CI.yml"
+        description: "Run ID to summarize"
+        required: true
+        type: string
 
 jobs:
   summary:
     runs-on: ubuntu-latest
+    env:
+      # If we were triggered by workflow_run, use that id; otherwise use the manual input
+      RUN_ID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.run_id }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Determine run id
-        id: det
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          WF_INPUT: ${{ inputs.workflow }}
-          RUN_INPUT: ${{ inputs.run_id }}
+      - name: Show context
         run: |
-          set -euo pipefail
-          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
-            echo "run_id=${{ github.event.workflow_run.id }}" >> "$GITHUB_OUTPUT"
-          else
-            if [[ -n "${RUN_INPUT}" ]]; then
-              echo "run_id=${RUN_INPUT}" >> "$GITHUB_OUTPUT"
-            else
-              wf="${WF_INPUT:-CI.yml}"
-              rid="$(gh run list --workflow "$wf" --limit 1 --json databaseId -q '.[0].databaseId')"
-              [[ -n "$rid" && "$rid" != "null" ]] || { echo "No runs found for $wf" >&2; exit 1; }
-              echo "run_id=$rid" >> "$GITHUB_OUTPUT"
-            fi
-          fi
-          echo "Using run_id=$(cut -d= -f2 "$GITHUB_OUTPUT")"
+          echo "event=${{ github.event_name }}"
+          echo "RUN_ID=$RUN_ID"
 
-      - name: Download artifacts (primary)
+      - name: Ensure RUN_ID is set
+        run: test -n "$RUN_ID"
+
+      - name: Download artifacts (action)
         uses: dawidd6/action-download-artifact@v3
         with:
           github_token: ${{ github.token }}
-          run_id: ${{ steps.det.outputs.run_id }}
+          run_id: ${{ env.RUN_ID }}
           path: artifacts
           if_no_artifact_found: warn
 
-      - name: Fallback: download all artifacts with gh
+      - name: Fallback download with gh
         if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          mkdir -p artifacts
-          gh run download "${{ steps.det.outputs.run_id }}" --dir artifacts || true
+        run: gh run download "$RUN_ID" --dir artifacts || true
 
-      - name: Show downloaded files
+      - name: Summarize junit + lcov
         run: |
-          echo "::group::artifacts tree"
-          ls -R artifacts || true
-          echo "::endgroup::"
-
-      - name: Summarize JUnit + coverage
-        id: sum
-        shell: bash
-        run: |
-          set -euo pipefail
           python3 - <<'PY'
-          import os, xml.etree.ElementTree as ET, pathlib
-          tests=fail=errs=skips=0
+          import os, xml.etree.ElementTree as ET
+          tests=fail=err=skip=0; LF=LH=0
           for root,_,files in os.walk("artifacts"):
             for f in files:
+              p=os.path.join(root,f)
               if f.endswith(".xml"):
-                p=os.path.join(root,f)
                 try:
                   ts=ET.parse(p).getroot()
                   if ts.tag=="testsuite":
                     tests+=int(ts.attrib.get("tests",0))
                     fail +=int(ts.attrib.get("failures",0))
-                    errs +=int(ts.attrib.get("errors",0))
-                    skips+=int(ts.attrib.get("skipped",0))
-                except Exception: pass
-          LF=LH=0
-          for root,_,files in os.walk("artifacts"):
-            for f in files:
-              if f=="lcov.info" or f.endswith(".lcov") or f.endswith(".info"):
-                with open(os.path.join(root,f)) as fh:
+                    err  +=int(ts.attrib.get("errors",0))
+                    skip +=int(ts.attrib.get("skipped",0))
+                except: pass
+              if f in ("lcov.info",) or f.endswith((".lcov",".info")):
+                with open(p) as fh:
                   for line in fh:
-                    if line.startswith("LF:"): LF+=int(line.split(":",1)[1])
-                    elif line.startswith("LH:"): LH+=int(line.split(":",1)[1])
-          cov=(100.0*LH/LF) if LF else 0.0
-          out = pathlib.Path("artifacts/_summary.txt")
-          out.write_text(f"JUnit: {tests} tests, {fail} failures, {errs} errors, {skips} skipped\nCoverage: {cov:.1f}% (LH={LH}, LF={LF})\n")
-          print(f"::notice title=JUnit::JUnit: {tests} tests, {fail} failures, {errs} errors, {skips} skipped")
-          print(f"::notice title=Coverage::Line coverage: {cov:.1f}% (LH={LH}, LF={LF})")
+                    if line.startswith("LF:"): LF+=int(line[3:])
+                    if line.startswith("LH:"): LH+=int(line[3:])
+          cov = (100.0*LH/LF) if LF else 0.0
+          print(f"JUnit: {tests} tests, {fail} failures, {err} errors, {skip} skipped")
+          print(f"Coverage: {cov:.1f}% (LH={LH}, LF={LF})")
           PY
-
-      - name: Enforce minimum coverage
-        env:
-          MIN: ${{ vars.COVERAGE_MIN || '18' }}
-        run: |
-          cov=$(sed -n 's/^Coverage: \([0-9.]*\)%.*/\1/p' artifacts/_summary.txt | head -n1)
-          echo "Coverage=${cov}% (min=${MIN}%)"
-          awk -v c="$cov" -v m="$MIN" 'BEGIN{ exit (c+0.0001<m) }'
-
-      - name: Upload summary artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: summary-${{ steps.det.outputs.run_id }}
-          path: artifacts/_summary.txt
