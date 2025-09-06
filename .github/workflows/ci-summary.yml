@@ -111,7 +111,7 @@ jobs:
           if cov < COV_MIN or fail > 0 or err > 0:
               print(f"::error:: Gate failed (coverage {cov:.1f}% < {COV_MIN}% or test failures present)")
               # Uncomment to make the job fail on gate:
-              # raise SystemExit(1)
+                          raise SystemExit(1)
 
           with open(os.environ.get("GITHUB_STEP_SUMMARY","/dev/null"), "a") as s:
               s.write(f"### JUnit\n{tests} tests, {fail} failures, {err} errors, {skip} skipped\n\n")
