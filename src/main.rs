@@ -3,7 +3,6 @@ use opentelemetry::trace::TraceContextExt;
 use opentelemetry::trace::{SpanBuilder, Tracer};
 use opentelemetry::{global, KeyValue};
 use std::time::{Duration, SystemTime};
-use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 fn current_trace_ids() -> Option<([u8; 16], [u8; 8])> {
     let cx = tracing::Span::current().context();
