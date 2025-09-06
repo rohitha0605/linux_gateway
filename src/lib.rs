@@ -42,6 +42,10 @@ pub enum FrameError {
     Crc,
     #[error("{0}")]
     ProstDecode(#[from] prost::DecodeError),
+    #[error("unknown protocol version {0:#04x}")]
+    UnknownVersion(u8),
+    #[error("unknown message type {0:#04x}")]
+    UnknownType(u8),
 }
 
 pub fn encode_calc_request(a: u32, b: u32) -> Vec<u8> {
@@ -184,4 +188,29 @@ pub fn decode_calc_request(
     }
 
     Ok(proto::rpmsg::calc::v1::CalcRequest::decode(payload)?)
+}
+
+/// Validate frame header and return (ver, typ, len).
+/// Guards: ShortHeader, BadSync, UnknownVersion, UnknownType.
+pub fn guard_header(hdr: &[u8]) -> Result<(u8, u8, u16), FrameError> {
+    const SYNC_CONST: u16 = 0xA55A;
+
+    if hdr.len() < 10 {
+        return Err(FrameError::ShortHeader);
+    }
+    let sync = u16::from_le_bytes([hdr[0], hdr[1]]);
+    if sync != SYNC_CONST {
+        return Err(FrameError::BadSync);
+    }
+    let ver = hdr[2];
+    if ver != 0x01 {
+        return Err(FrameError::UnknownVersion(ver));
+    }
+    let typ = hdr[3];
+    match typ {
+        0x01 | 0x02 => {}
+        _ => return Err(FrameError::UnknownType(typ)),
+    }
+    let len = u16::from_le_bytes([hdr[4], hdr[5]]);
+    Ok((ver, typ, len))
 }
