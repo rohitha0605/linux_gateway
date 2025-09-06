@@ -41,12 +41,12 @@ pub enum FrameError {
     Type,
     Length,
     Crc,
-    Decode,    BadSync(u16),
+    Decode,
+    BadSync(u16),
     UnknownVersion(u8),
     UnknownType(u8),
     ShortHeader,
 }
-
 
 fn split_payload(frame: &[u8], expect: wire::MsgType) -> Result<&[u8], FrameError> {
     if frame.len() < 10 {
@@ -122,8 +122,6 @@ pub fn decode_calc_request(frame: &[u8]) -> Result<proto::CalcRequest, FrameErro
 
 // ---- frame compatibility guards ------------------------------------------
 pub const FRAME_VERSION: u8 = 0x01;
-
-
 
 /// Validate the 10-byte frame header:
 /// [SYNC u16][VER u8][TYPE u8][LEN u16][CRC32 u32] (all little-endian)
