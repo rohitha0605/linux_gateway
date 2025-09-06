@@ -42,6 +42,10 @@ pub enum FrameError {
     Length,
     Crc,
     Decode,
+    BadSync(u16),
+    UnknownVersion(u8),
+    UnknownType(u8),
+    ShortHeader,
 }
 
 fn split_payload(frame: &[u8], expect: wire::MsgType) -> Result<&[u8], FrameError> {
@@ -114,4 +118,39 @@ pub fn decode_calc_response(frame: &[u8]) -> Result<proto::CalcResponse, FrameEr
 pub fn decode_calc_request(frame: &[u8]) -> Result<proto::CalcRequest, FrameError> {
     let payload = split_payload(frame, wire::MsgType::CalcReq)?;
     proto::CalcRequest::decode(payload).map_err(|_| FrameError::Decode)
+}
+
+// ---- frame compatibility guards ------------------------------------------
+pub const FRAME_VERSION: u8 = 0x01;
+
+/// Validate the 10-byte frame header:
+/// [SYNC u16][VER u8][TYPE u8][LEN u16][CRC32 u32] (all little-endian)
+/// Returns (ver, typ, len) or a FrameError.
+pub fn guard_header(hdr: &[u8]) -> Result<(u8, u8, u16), FrameError> {
+    const SYNC_CONST: u16 = 0xA55A;
+
+    if hdr.len() < 10 {
+        return Err(FrameError::ShortHeader);
+    }
+    let sync = u16::from_le_bytes([hdr[0], hdr[1]]);
+    if sync != SYNC_CONST {
+        return Err(FrameError::BadSync(sync));
+    }
+
+    let ver = hdr[2];
+    if ver != FRAME_VERSION {
+        return Err(FrameError::UnknownVersion(ver));
+    }
+
+    let typ = hdr[3];
+    // Update allowed types to match your protocol
+    const TYPE_CALC_REQ: u8 = 1;
+    const TYPE_CALC_RESP: u8 = 2;
+    match typ {
+        TYPE_CALC_REQ | TYPE_CALC_RESP => {}
+        _ => return Err(FrameError::UnknownType(typ)),
+    }
+
+    let len = u16::from_le_bytes([hdr[4], hdr[5]]);
+    Ok((ver, typ, len))
 }
