@@ -3,8 +3,10 @@ use linux_gateway::{guard_header, FrameError};
 fn mk_hdr(ver: u8, typ: u8, len: u16) -> [u8; 10] {
     let sync = 0xA55Au16.to_le_bytes();
     let lenb = len.to_le_bytes();
-    let crc  = (0u32).to_le_bytes();
-    [sync[0], sync[1], ver, typ, lenb[0], lenb[1], crc[0], crc[1], crc[2], crc[3]]
+    let crc = (0u32).to_le_bytes();
+    [
+        sync[0], sync[1], ver, typ, lenb[0], lenb[1], crc[0], crc[1], crc[2], crc[3],
+    ]
 }
 
 #[test]
