@@ -32,6 +32,10 @@ pub mod proto {
 
 #[derive(Debug, Error)]
 pub enum FrameError {
+    #[error("decode failed")] Decode,
+
+    #[error("unknown version {0:#04x}")] UnknownVersion(u8),
+    #[error("unknown type {0:#04x}")] UnknownType(u8),
     #[error("short header")]
     ShortHeader,
     #[error("bad sync")]
@@ -87,7 +91,7 @@ pub fn decode_calc_response(
         return Err(FrameError::Length);
     }
 
-    Ok(proto::rpmsg::calc::v1::CalcResponse::decode(payload)?)
+    proto::rpmsg::calc::v1::CalcResponse::decode(payload).map_err(|_| FrameError::Decode)
 }
 
 pub fn encode_calc_response(sum: u32) -> Vec<u8> {
@@ -183,5 +187,34 @@ pub fn decode_calc_request(
         return Err(FrameError::Length);
     }
 
-    Ok(proto::rpmsg::calc::v1::CalcRequest::decode(payload)?)
+    proto::rpmsg::calc::v1::CalcRequest::decode(payload).map_err(|_| FrameError::Decode)
+}
+/// Guards: ShortHeader/BadSync/UnknownVersion/UnknownType.
+/// Validates 10-byte header and returns (ver, typ, len) on success.
+pub fn guard_header(hdr: &[u8]) -> Result<(u8, u8, u16), FrameError> {
+    const SYNC_CONST: u16 = 0xA55A;
+
+    if hdr.len() < 10 {
+        return Err(FrameError::ShortHeader);
+    }
+
+    let sync = u16::from_le_bytes([hdr[0], hdr[1]]);
+    if sync != SYNC_CONST {
+        return Err(FrameError::BadSync);
+    }
+
+    let ver = hdr[2];
+    let typ = hdr[3];
+    let len = u16::from_le_bytes([hdr[4], hdr[5]]);
+
+    if ver != 1 {
+        return Err(FrameError::UnknownVersion(ver));
+    }
+
+    match typ {
+        1 | 2 => {}
+        _ => return Err(FrameError::UnknownType(typ)),
+    }
+
+    Ok((ver, typ, len))
 }
