@@ -32,6 +32,14 @@ pub mod proto {
 
 #[derive(Debug, Error)]
 pub enum FrameError {
+    #[error("decode failed")]
+    Decode,
+
+    #[error("unknown version {0:#04x}")]
+    UnknownVersion(u8),
+    #[error("unknown type {0:#04x}")]
+    UnknownType(u8),
+
     #[error("short header")]
     ShortHeader,
     #[error("bad sync")]
@@ -62,6 +70,18 @@ pub fn encode_calc_request(a: u32, b: u32) -> Vec<u8> {
 pub fn decode_calc_response(
     frame: &[u8],
 ) -> Result<proto::rpmsg::calc::v1::CalcResponse, FrameError> {
+    // backport-guards: response
+    if frame.len() >= 4 {
+        let ver = frame[2];
+        if ver != 1 {
+            return Err(FrameError::UnknownVersion(ver));
+        }
+        let typ = frame[3];
+        if typ != 1 && typ != 2 {
+            return Err(FrameError::UnknownType(typ));
+        }
+    }
+
     if frame.len() < 10 {
         return Err(FrameError::ShortHeader);
     }
@@ -87,7 +107,7 @@ pub fn decode_calc_response(
         return Err(FrameError::Length);
     }
 
-    Ok(proto::rpmsg::calc::v1::CalcResponse::decode(payload)?)
+    proto::rpmsg::calc::v1::CalcResponse::decode(payload).map_err(|_| FrameError::Decode)
 }
 
 pub fn encode_calc_response(sum: u32) -> Vec<u8> {
@@ -158,6 +178,18 @@ pub fn encode_calc_request_with_trace(a: u32, b: u32) -> (Vec<u8>, Vec<u8>, u64)
 pub fn decode_calc_request(
     frame: &[u8],
 ) -> Result<proto::rpmsg::calc::v1::CalcRequest, FrameError> {
+    // backport-guards: request
+    if frame.len() >= 4 {
+        let ver = frame[2];
+        if ver != 1 {
+            return Err(FrameError::UnknownVersion(ver));
+        }
+        let typ = frame[3];
+        if typ != 1 && typ != 2 {
+            return Err(FrameError::UnknownType(typ));
+        }
+    }
+
     if frame.len() < 10 {
         return Err(FrameError::ShortHeader);
     }
@@ -183,5 +215,5 @@ pub fn decode_calc_request(
         return Err(FrameError::Length);
     }
 
-    Ok(proto::rpmsg::calc::v1::CalcRequest::decode(payload)?)
+    proto::rpmsg::calc::v1::CalcRequest::decode(payload).map_err(|_| FrameError::Decode)
 }
