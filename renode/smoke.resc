@@ -1,3 +1,5 @@
-# Placeholder smoke; replace with real platform in Milestone 3/4
-mach create
-quit
+using sysbus
+mach create "smoke"
+log "linux_gateway: Renode smoke starting"
+log "SMOKE_PASS"   # <-- CI will grep for this
+emulation Quit

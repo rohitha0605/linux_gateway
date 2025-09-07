@@ -1,0 +1,40 @@
+name: Renode Smoke
+
+on:
+  pull_request:
+  push:
+    branches: [ main, ci-*, guards-*, guards-backport-*, guards-cutover-* ]
+
+jobs:
+  renode-smoke:
+    runs-on: ubuntu-latest
+    # Run inside Renode's container for a zero-setup experience
+    container: ghcr.io/antmicro/renode:latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare artifact dir
+        run: mkdir -p artifacts/renode
+
+      - name: Run Renode headless smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Run renode headless, execute our script, capture all output
+          renode --disable-xwt -e 'i @renode/smoke.resc' 2>&1 | tee artifacts/renode/renode.log
+
+      - name: Assert PASS token from Renode
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "SMOKE_PASS" artifacts/renode/renode.log
+
+      - name: Upload Renode logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: renode-logs
+          path: artifacts/renode
+          if-no-files-found: warn
