@@ -32,10 +32,13 @@ pub mod proto {
 
 #[derive(Debug, Error)]
 pub enum FrameError {
-    #[error("decode failed")] Decode,
+    #[error("decode failed")]
+    Decode,
 
-    #[error("unknown version {0:#04x}")] UnknownVersion(u8),
-    #[error("unknown type {0:#04x}")] UnknownType(u8),
+    #[error("unknown version {0:#04x}")]
+    UnknownVersion(u8),
+    #[error("unknown type {0:#04x}")]
+    UnknownType(u8),
 
     #[error("short header")]
     ShortHeader,
@@ -70,9 +73,13 @@ pub fn decode_calc_response(
     // backport-guards: response
     if frame.len() >= 4 {
         let ver = frame[2];
-        if ver != 1 { return Err(FrameError::UnknownVersion(ver)); }
+        if ver != 1 {
+            return Err(FrameError::UnknownVersion(ver));
+        }
         let typ = frame[3];
-        if typ != 1 && typ != 2 { return Err(FrameError::UnknownType(typ)); }
+        if typ != 1 && typ != 2 {
+            return Err(FrameError::UnknownType(typ));
+        }
     }
 
     if frame.len() < 10 {
@@ -174,9 +181,13 @@ pub fn decode_calc_request(
     // backport-guards: request
     if frame.len() >= 4 {
         let ver = frame[2];
-        if ver != 1 { return Err(FrameError::UnknownVersion(ver)); }
+        if ver != 1 {
+            return Err(FrameError::UnknownVersion(ver));
+        }
         let typ = frame[3];
-        if typ != 1 && typ != 2 { return Err(FrameError::UnknownType(typ)); }
+        if typ != 1 && typ != 2 {
+            return Err(FrameError::UnknownType(typ));
+        }
     }
 
     if frame.len() < 10 {
