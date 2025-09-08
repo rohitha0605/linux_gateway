@@ -11,3 +11,13 @@ r5/*.o
 r5/host-smoke
 r5/calc.pb-c.c
 r5/calc.pb-c.h
+
+# keep fuzz seeds & dict in VCS
+!fuzz/
+!fuzz/corpus/**
+!fuzz/dict/**
+
+# keep fuzz seeds & dict in VCS
+!fuzz/
+!fuzz/corpus/**
+!fuzz/dict/**
