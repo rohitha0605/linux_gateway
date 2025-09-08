@@ -11,7 +11,6 @@ fn roundtrip_calc_response() {
 }
 
 #[test]
-#[ignore = "deferred while wiring CI & fuzz; re-enable once decoder CRC check is finalized"]
 fn crc_mismatch_is_error() {
     let mut frame = encode_calc_response(1);
     // flip one payload byte so header CRC no longer matches

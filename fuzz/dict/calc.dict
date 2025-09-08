@@ -1,0 +1,16 @@
+# framing bytes (ver=1, types=1/2)
+"\x01"            # version 1
+"\x01\x01"        # [ver=1][type=req]
+"\x01\x02"        # [ver=1][type=resp]
+
+# small payload sizes (prost varints often produce small bodies)
+"\x00\x00" "\x00\x01" "\x01\x00" "\x02\x00" "\x04\x00"
+
+# common little-endian CRC suffix shapes (not exact, but helps structure)
+"\x00\x00\x00\x00"
+"\xff\xff\xff\xff"
+
+# CalcRequest/Response field tags (protobuf varints):
+"\x08"  # field 1 varint
+"\x10"  # field 2 varint
+"\x18"  # field 3 varint

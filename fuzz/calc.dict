@@ -1,0 +1,11 @@
+# Field names / keywords that help the mutator
+"a"
+"b"
+"op"
+"result"
+"version"
+"type"
+# Encoded op enum values (prost -> varint; still helps tokenization)
+"\x00"   # Op::Sum as i32 = 0
+"\x01"
+"\x02"

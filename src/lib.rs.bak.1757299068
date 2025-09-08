@@ -43,52 +43,32 @@ pub mod wire {
         frame
     }
 
-    pub fn wrap_v1_req(payload: &[u8]) -> Vec<u8> {
-        wrap_v1_typed(TYPE_REQ, payload)
-    }
-    pub fn wrap_v1_resp(payload: &[u8]) -> Vec<u8> {
-        wrap_v1_typed(TYPE_RESP, payload)
-    }
+    pub fn wrap_v1_req(payload: &[u8]) -> Vec<u8>  { wrap_v1_typed(TYPE_REQ,  payload) }
+    pub fn wrap_v1_resp(payload: &[u8]) -> Vec<u8> { wrap_v1_typed(TYPE_RESP, payload) }
 
-    pub fn unwrap_v1_typed(frame: &[u8], expect_typ: u8) -> Result<&[u8], crate::FrameError> {
+    fn unwrap_v1_typed<'a>(frame: &'a [u8], expect_typ: u8) -> Result<&'a [u8], FrameError> {
         // Need at least: ver(1) + type(1) + crc(4) = 6 bytes
-        if frame.len() < 6 {
-            return Err(FrameError::TooShort);
-        }
+        if frame.len() < 6 { return Err(FrameError::TooShort); }
         let ver = frame[0];
-        if ver != PROTO_VERSION {
-            return Err(FrameError::UnknownVersion(ver));
-        }
+        if ver != PROTO_VERSION { return Err(FrameError::UnknownVersion(ver)); }
         let typ_actual = frame[1];
-        if typ_actual != expect_typ {
-            return Err(FrameError::UnknownType(typ_actual));
-        }
+        if typ_actual != expect_typ { return Err(FrameError::UnknownType(typ_actual)); }
 
         let payload_len = frame.len() - 2 - 4;
         let (payload, crc_bytes) = frame[2..].split_at(payload_len);
         let got = u32::from_le_bytes(crc_bytes.try_into().unwrap());
         let want = crc32(payload);
-        if got != want {
-            return Err(FrameError::Crc);
-        }
+        if got != want { return Err(FrameError::Crc); }
         Ok(payload)
     }
 
-    pub fn unwrap_v1_req(frame: &[u8]) -> Result<&[u8], FrameError> {
-        unwrap_v1_typed(frame, TYPE_REQ)
-    }
-    pub fn unwrap_v1_resp(frame: &[u8]) -> Result<&[u8], FrameError> {
-        unwrap_v1_typed(frame, TYPE_RESP)
-    }
+    pub fn unwrap_v1_req(frame: &[u8])  -> Result<&[u8], FrameError> { unwrap_v1_typed(frame, TYPE_REQ) }
+    pub fn unwrap_v1_resp(frame: &[u8]) -> Result<&[u8], FrameError> { unwrap_v1_typed(frame, TYPE_RESP) }
 }
 
 pub fn encode_calc_request(a: u32, b: u32) -> Vec<u8> {
     use crate::proto::{calc_request::Op, CalcRequest};
-    let req = CalcRequest {
-        a,
-        b,
-        op: Op::Sum as i32,
-    };
+    let req = CalcRequest { a, b, op: Op::Sum as i32 };
     let mut payload = Vec::new();
     req.encode(&mut payload).expect("encode");
     wire::wrap_v1_req(&payload)
@@ -102,24 +82,21 @@ pub fn encode_calc_response(sum: u32) -> Vec<u8> {
     wire::wrap_v1_resp(&payload)
 }
 
-pub fn decode_calc_request(frame: &[u8]) -> Result<crate::proto::CalcRequest, FrameError> {
-    let payload = crate::wire::unwrap_v1_req(frame)?;
+pub fn decode_calc_request(
+    frame: &[u8],
+) -> Result<crate::proto::CalcRequest, FrameError> {
+    let payload = wire::unwrap_v1_req(frame)?;
     crate::proto::CalcRequest::decode(payload).map_err(|_| FrameError::Decode)
 }
 
-pub fn decode_calc_response(frame: &[u8]) -> Result<crate::proto::CalcResponse, FrameError> {
-    let payload = crate::wire::unwrap_v1_resp(frame)?;
+pub fn decode_calc_response(
+    frame: &[u8],
+) -> Result<crate::proto::CalcResponse, FrameError> {
+    let payload = wire::unwrap_v1_resp(frame)?;
     crate::proto::CalcResponse::decode(payload).map_err(|_| FrameError::Decode)
 }
 
 // Legacy ABI kept for old callers
-
-// Legacy ABI kept for old callers; will be removed after full cutover.
-#[allow(dead_code)]
-// Legacy ABI kept for old callers; will be removed after full cutover.
-// Legacy ABI kept for old callers; will be removed after full cutover.
-// Legacy ABI kept for old callers; will be removed after full cutover.
-// Legacy ABI kept for old callers; will be removed after full cutover.
 pub fn encode_calc_request_with_trace(a: u32, b: u32) -> (Vec<u8>, Vec<u8>, u64) {
     let frame = encode_calc_request(a, b);
     let now = std::time::SystemTime::now()

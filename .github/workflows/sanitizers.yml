@@ -1,0 +1,24 @@
+name: sanitizers
+on:
+  push: { branches: ["**"] }
+  pull_request:
+
+jobs:
+  san:
+    strategy:
+      matrix:
+        san: [address, undefined]
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: -Zsanitizer=${{ matrix.san }}
+      RUSTDOCFLAGS: -Zsanitizer=${{ matrix.san }}
+      RUSTC_BOOTSTRAP: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { components: rust-src }
+      - name: Install nightly for sanitizers
+        uses: dtolnay/rust-toolchain@nightly
+      - name: Build & test with ${{ matrix.san }}
+        run: |
+          cargo +nightly test -Z build-std --target x86_64-unknown-linux-gnu

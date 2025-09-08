@@ -1,11 +1,29 @@
 name: Renode Smoke
 on:
-  workflow_dispatch:
+  push:
+    branches: [ main, "ci/**" ]
   pull_request:
     branches: [ main ]
-  push:
-    branches:
-      - main
-      - ci/**
-# keep your existing jobs below unchanged
-# (I'm only showing the trigger block)
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build host
+        run: cargo build --release
+      - name: Run Renode (Docker)
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work antmicro/renode:latest \
+            sh -lc 'renode -e "i @renode/smoke.resc; start" --disable-xwt' | tee renode.log
+          grep -q "CalcResponse" renode.log || { echo "::error::Missing success line"; exit 1; }
+      - name: Upload Renode log
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: renode-log-${{ github.run_id }}
+          path: renode.log
+          if-no-files-found: warn
+          overwrite: true

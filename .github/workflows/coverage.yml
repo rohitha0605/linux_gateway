@@ -1,0 +1,9 @@
+
+  # Add at the end of your coverage job:
+  - name: Enforce coverage threshold
+    run: |
+      THRESH=70
+      # Example: parse from an llvm-cov summary file you generate earlier
+      COV=$(grep -Eo 'lines.*: *[0-9]+\.[0-9]%' coverage/summary.txt | grep -Eo '[0-9]+\.[0-9]%' | tr -d '%')
+      echo "Coverage: ${COV}%  (threshold ${THRESH}%)"
+      awk -v cov="$COV" -v th="$THRESH" 'BEGIN{ if (cov+0 < th+0) exit 1 }'

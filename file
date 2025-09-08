@@ -1,0 +1,62 @@
+# 0) If your shell shows `quote>` again, press Ctrl-C once to escape it.
+
+# 1) Safety backup
+cp -n src/lib.rs src/lib.rs.bak.$(date +%s) || true
+
+# 2) Remove stray transcript markers and any accidental '}")]' tails
+perl -0777 -i -pe 's/^(?:RS|PERL|quote>)\s*\n//mg; s/^\>\.\.\.\s*\n//mg; s/\}\s*"\)\]\s*/}\n/g' src/lib.rs
+
+# 3) Replace `#[derive(Debug, thiserror::Error)]` with a plain Debug derive
+perl -0777 -i -pe 's/\#\s*\[\s*derive\s*\(\s*Debug\s*,\s*thiserror::Error\s*\)\s*\]/#[derive(Debug)]/g' src/lib.rs
+
+# 4) Drop ALL #[error("...")] attribute lines (these are what’s breaking parsing)
+perl -0777 -i -pe 's/^\s*\#\s*\[\s*error\([^]]*\)\s*\]\s*\n//mg' src/lib.rs
+
+# 5) Ensure FrameError exists; if not, prepend a minimal, clean enum
+perl -0777 -i -pe '
+  if ($_ !~ /enum\s+FrameError/s) {
+    $_ = "
+/// Errors from wire framing and decoding
+#[derive(Debug)]
+pub enum FrameError {
+    Decode,
+    UnknownVersion(u8),
+    TooShort,
+    Length,
+    BadCrc { got: u32, want: u32 },
+}
+
+" . $_;
+  }
+' src/lib.rs
+
+# 6) Append a manual Display + Error impl exactly once
+perl -0777 -i -pe '
+  if ($_ !~ /impl\s+std::fmt::Display\s+for\s+FrameError/) {
+    $_ .= q{
+
+impl std::fmt::Display for FrameError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FrameError::Decode => write!(f, "decode failed"),
+            FrameError::UnknownVersion(v) => write!(f, "unknown version {v:#04x}"),
+            FrameError::TooShort => write!(f, "frame too short"),
+            FrameError::Length => write!(f, "length mismatch"),
+            FrameError::BadCrc { got, want } => write!(f, "crc mismatch got={got:#010x} want={want:#010x}"),
+        }
+    }
+}
+impl std::error::Error for FrameError {}
+};
+  }
+' src/lib.rs
+
+# 7) Keep only one `use prost::Message;` import (avoid E0252)
+perl -0777 -i -pe 'my $c=0; s/^\s*use\s+prost::Message;\s*\n/ (++$c==1)?$&:""/emg' src/lib.rs
+
+# 8) Quick brace balance check (should print 0)
+awk 'BEGIN{d=0}{d+=gsub(/\{/,"{"); d-=gsub(/\}/,"}")}END{print d}' src/lib.rs
+
+# 9) Build the codec test with output so we see the next real error, if any
+cargo clean
+cargo test --test codec -- --nocapture

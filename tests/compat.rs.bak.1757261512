@@ -1,7 +1,6 @@
 use linux_gateway::{decode_calc_request, decode_calc_response, FrameError};
 
 #[test]
-#[ignore = "deferred while wiring CI & fuzz; re-enable after guard-order fix"]
 fn rejects_unknown_version_resp() {
     let sync = 0xA55Au16.to_le_bytes();
     let mut frame = Vec::new();
@@ -15,7 +14,6 @@ fn rejects_unknown_version_resp() {
 }
 
 #[test]
-#[ignore = "deferred while wiring CI & fuzz; re-enable after guard-order fix"]
 fn rejects_unknown_type_req() {
     let sync = 0xA55Au16.to_le_bytes();
     let mut frame = Vec::new();
