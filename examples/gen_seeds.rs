@@ -1,6 +1,6 @@
 fn main() {
     std::fs::create_dir_all("fuzz/corpus/frame_decode").unwrap();
-let good_req = linux_gateway::encode_calc_request(7, 35);
+    let good_req = linux_gateway::encode_calc_request(7, 35);
     let good_resp = linux_gateway::encode_calc_response(42);
 
     std::fs::write("fuzz/corpus/frame_decode/00-good-req", &good_req).unwrap();
