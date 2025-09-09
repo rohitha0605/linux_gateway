@@ -8,6 +8,9 @@ jobs:
   afl:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      AFL_SKIP_CPUFREQ: "1"
+      AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -24,10 +27,11 @@ jobs:
           cargo afl fuzz \
             -i afl_corpus_min \
             -o afl_out \
+            -x fuzz/dict/calc.dict \
             -V 45 \
             -- ./afl-harness/target/release/afl-harness
 
-      - name: Upload AFL artifacts (queue, findings)
+      - name: Upload AFL artifacts (queue, fastresume)
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
