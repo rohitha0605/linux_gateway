@@ -34,12 +34,29 @@ jobs:
             -V 45 \
             -- ./afl-harness/target/release/afl-harness
 
+      - name: Package AFL outputs (queue/crashes) for upload
+        if: always()
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p ci_artifacts
+          shopt -s nullglob
+          for d in afl-out* afl_artifacts/* fuzz/**/artifacts; do
+            [ -d "$d" ] || continue
+            for sub in queue crashes hangs; do
+              if [ -d "$d/$sub" ]; then
+                base="$(basename "$d")_${sub}"
+                tar -czf "ci_artifacts/${base}.tar.gz" -C "$d/$sub" .
+              fi
+            done
+          done
       - name: Upload AFL artifacts (queue, fastresume)
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
+          if-no-files-found: ignore
           name: afl-out-${{ github.run_id }}
-          path: |
+        path: ci_artifacts/*.tar.gz
             afl_out/default/queue
             afl_out/default/fastresume.bin
           if-no-files-found: warn

@@ -27,3 +27,8 @@ afl_out/
 afl_corpus/
 afl-harness/target/
 **/target/
+
+# AFL outputs
+afl-out*
+afl_artifacts/
+ci_artifacts/
