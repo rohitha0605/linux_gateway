@@ -25,6 +25,7 @@ prost-build = "0.12"
 # ---- tracing + otel (m2) ----
 opentelemetry-jaeger = { version = "0.21", features = ["rt-tokio"] }
 rand = "0.8"
+protoc-bin-vendored = "3"
 [dev-dependencies]
 assert_cmd = "2"
 predicates = "3"
