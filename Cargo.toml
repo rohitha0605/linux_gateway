@@ -16,9 +16,11 @@ axum = "0.7"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["fmt","env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 rand = "0.8"
-
+tracing-opentelemetry = "0.23"
+opentelemetry = { version = "0.22", features = ["trace"] }
+opentelemetry-jaeger = { version = "0.21", features = ["rt-tokio"] }
 [build-dependencies]
 prost-build = "0.12"
 
