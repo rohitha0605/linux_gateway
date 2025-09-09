@@ -50,6 +50,23 @@ jobs:
               fi
             done
           done
+      - name: Package AFL outputs (queue/crashes) for upload
+        if: always()
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p ci_artifacts
+          shopt -s nullglob
+          for d in afl-out* afl_artifacts/* fuzz/**/artifacts; do
+            [ -d "" ] || continue
+            for sub in queue crashes hangs; do
+              if [ -d "/" ]; then
+                base="$(basename "")_${sub}"
+                tar -czf "ci_artifacts/${base}.tar.gz" -C "/" .
+              fi
+            done
+          done
+
       - name: Upload AFL artifacts (queue, fastresume)
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
@@ -60,3 +77,7 @@ jobs:
             afl_out/default/queue
             afl_out/default/fastresume.bin
           if-no-files-found: warn
+        with:
+  if-no-files-found: ignore
+        with:
+  compression-level: 0
