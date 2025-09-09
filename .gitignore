@@ -21,3 +21,9 @@ r5/calc.pb-c.h
 !fuzz/
 !fuzz/corpus/**
 !fuzz/dict/**
+
+# fuzz / afl junk
+afl_out/
+afl_corpus/
+afl-harness/target/
+**/target/
