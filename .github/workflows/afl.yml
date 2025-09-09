@@ -1,38 +1,38 @@
 name: afl-smoke
 on:
   pull_request:
-  push: { branches: [ main, "ci/**", "feat/**", "chore/**" ] }
+  push:
+    branches: [ main, "ci/**", "chore/**", "feat/**" ]
 
 jobs:
   afl:
     runs-on: ubuntu-latest
-    env:
-      AFL_SKIP_CPUFREQ: "1"
-      AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES: "1"
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+
       - name: Install cargo-afl
         run: cargo install cargo-afl
-      - name: Build harness (release)
-        run: cargo afl build --bin afl_frame_decode --release
-      - name: Seed corpus (reuse libFuzzer seeds if present)
-        run: |
-          mkdir -p afl_corpus
-          if [ -d fuzz/corpus/frame_decode ]; then
-            cp -r fuzz/corpus/frame_decode/* afl_corpus/ || true
-          fi
-      - name: AFL fuzz (30s bounded)
+
+      - name: Build harness (AFL-instrumented)
+        working-directory: afl-harness
+        run: cargo afl build --release
+
+      - name: Run AFL smoke (45s)
         run: |
           mkdir -p afl_out
-          timeout 45s bash -c \
-            'cargo afl fuzz -i afl_corpus -o afl_out -V 30 -- ./target/release/afl_frame_decode'
-      - name: Upload AFL artifacts
+          cargo afl fuzz \
+            -i afl_corpus_min \
+            -o afl_out \
+            -V 45 \
+            -- ./afl-harness/target/release/afl-harness
+
+      - name: Upload AFL artifacts (queue, findings)
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: afl-${{ github.run_id }}
+          name: afl-out-${{ github.run_id }}
           path: |
-            afl_out
-            afl_corpus
+            afl_out/default/queue
+            afl_out/default/fastresume.bin
           if-no-files-found: warn
