@@ -1,14 +1,76 @@
-- name: Pack AFL artifacts (queue + fastresume)
-  if: always()
-  run: |
-    mkdir -p afl_artifacts
-    tar -C afl_out -czf "afl_artifacts/afl-out-${{ github.run_id }}.tar.gz" \
-      default/queue default/fastresume.bin
+name: afl-smoke
+on:
+  push:
+  pull_request:
 
-- name: Upload AFL artifacts (tarball)
-  if: always()
-  uses: actions/upload-artifact@v4
-  with:
-    name: "afl-out-${{ github.run_id }}"
-    path: "afl_artifacts/afl-out-${{ github.run_id }}.tar.gz"
-    if-no-files-found: warn
+jobs:
+  afl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      AFL_SKIP_CPUFREQ: "1"
+      AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo + targets
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+            afl-harness/target/
+          key: ${{ runner.os }}-afl-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install cargo-afl
+        run: cargo install cargo-afl --force
+
+      - name: Build AFL harness (instrumented)
+        run: |
+          set -euo pipefail
+          (cd afl-harness && cargo afl build --release)
+
+      - name: Ensure seed corpus
+        run: |
+          set -euo pipefail
+          mkdir -p afl_corpus_min
+          if [ ! -s afl_corpus_min/00-req-ok ]; then
+            printf '0101100718232D776E54\n' | xxd -r -p > afl_corpus_min/00-req-ok
+          fi
+          if [ ! -s afl_corpus_min/01-resp-ok ]; then
+            printf '0102080161A807FE\n' | xxd -r -p > afl_corpus_min/01-resp-ok
+          fi
+          [ -s afl_corpus_min/02-too-short ] || printf '\x01' > afl_corpus_min/02-too-short
+          [ -s afl_corpus_min/03-unknown-type ] || printf '\x01\x03' > afl_corpus_min/03-unknown-type
+          ls -l afl_corpus_min
+
+      - name: Run AFL smoke (45s)
+        run: |
+          set -euo pipefail
+          mkdir -p afl_out
+          cargo afl fuzz -i afl_corpus_min -o afl_out -V 45 -- ./afl-harness/target/release/afl-harness || true
+
+      - name: Pack AFL outputs (queue + fastresume)
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          if [ -d afl_out/default ]; then
+            tar -C afl_out -czf "afl-out-${{ github.run_id }}.tar.gz" default/queue default/fastresume.bin || true
+          fi
+
+      - name: Upload AFL artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: afl-out-${{ github.run_id }}
+          path: |
+            afl-out-${{ github.run_id }}.tar.gz
+          if-no-files-found: warn
