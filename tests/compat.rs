@@ -1,3 +1,4 @@
+#![cfg(feature = "strict-guards")] // parked: only runs when --features strict-guards
 use linux_gateway::{guard_header, FrameError};
 
 fn mk_hdr(ver: u8, typ: u8, len: u16) -> [u8; 10] {

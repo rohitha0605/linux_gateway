@@ -1,54 +1,76 @@
 name: afl-smoke
 on:
-  workflow_dispatch: {}
-permissions:
-  contents: read
+  push:
+  pull_request:
+
 jobs:
-  smoke:
+  afl:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
+    env:
+      AFL_SKIP_CPUFREQ: "1"
+      AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES: "1"
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Install deps (AFL++, clang, protoc)
+      - name: Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo + targets
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+            afl-harness/target/
+          key: ${{ runner.os }}-afl-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install cargo-afl
+        run: cargo install cargo-afl --force
+
+      - name: Build AFL harness (instrumented)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y afl++ clang protobuf-compiler
+          set -euo pipefail
+          (cd afl-harness && cargo afl build --release)
 
-      - name: Build (release)
-        run: cargo build --release
-
-      - name: Seed corpus (if missing)
+      - name: Ensure seed corpus
         run: |
-          mkdir -p fuzz/seeds
-          [ -s fuzz/seeds/seed.txt ] || printf '0A0B0C\n0001020304\n' > fuzz/seeds/seed.txt
+          set -euo pipefail
+          mkdir -p afl_corpus_min
+          if [ ! -s afl_corpus_min/00-req-ok ]; then
+            printf '0101100718232D776E54\n' | xxd -r -p > afl_corpus_min/00-req-ok
+          fi
+          if [ ! -s afl_corpus_min/01-resp-ok ]; then
+            printf '0102080161A807FE\n' | xxd -r -p > afl_corpus_min/01-resp-ok
+          fi
+          [ -s afl_corpus_min/02-too-short ] || printf '\x01' > afl_corpus_min/02-too-short
+          [ -s afl_corpus_min/03-unknown-type ] || printf '\x01\x03' > afl_corpus_min/03-unknown-type
+          ls -l afl_corpus_min
 
-      - name: Fuzz 60s (non-blocking)
-        env:
-          AFL_SKIP_CPUFREQ: "1"
-          AFL_NO_UI: "1"
-          AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES: "1"
+      - name: Run AFL smoke (45s)
         run: |
-          mkdir -p fuzz/out
-          timeout 60s afl-fuzz -V 60 -i fuzz/seeds -o fuzz/out -- \
-            target/release/linux_gateway --decode @@ || true
+          set -euo pipefail
+          mkdir -p afl_out
+          cargo afl fuzz -i afl_corpus_min -o afl_out -V 45 -- ./afl-harness/target/release/afl-harness || true
 
-      - name: Tar AFL output (always)
-        if: always()
+      - name: Pack AFL outputs (queue + fastresume)
+        if: ${{ always() }}
         run: |
-          mkdir -p artifacts
-          # Create an empty tarball if nothing is there so upload never fails
-          if [ -d fuzz/out ] && find fuzz/out -mindepth 1 -print -quit | grep -q .; then
-            tar -C fuzz/out -czf artifacts/afl-out-${{ github.run_id }}.tgz .
-          else
-            tar -czf artifacts/afl-out-${{ github.run_id }}.tgz --files-from /dev/null
+          set -euo pipefail
+          if [ -d afl_out/default ]; then
+            tar -C afl_out -czf "afl-out-${{ github.run_id }}.tar.gz" default/queue default/fastresume.bin || true
           fi
 
-      - name: Upload artifact
-        if: always()
+      - name: Upload AFL artifacts
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: afl-out-${{ github.run_id }}
-          path: artifacts/afl-out-${{ github.run_id }}.tgz
+          path: |
+            afl-out-${{ github.run_id }}.tar.gz
           if-no-files-found: warn

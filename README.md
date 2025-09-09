@@ -1,45 +1,73 @@
-# linux_gateway (RPMsg + Protobuf + Framed Codec)
+# linux_gateway
 
-![CI](https://github.com/rohitha0605/linux_gateway/actions/workflows/ci.yml/badge.svg?branch=main)
-
-## Protocol
-- `.proto`: `rpmsg.calc.v1` → `CalcRequest{a,b}`, `CalcResponse{sum, trace?}`
-- Frame: `[SYNC=0xA55A|2][VER=0x01|1][TYPE|1][LEN|2][CRC32(payload)|4][PAYLOAD]`
-  - TYPE: `1=CalcReq`, `2=CalcResp`
+## Overview
+- Linux ↔ R5 gateway using RPMsg + Protobuf
+- Framed wire format with version, type, CRC32
+- Guarded parsing and decode errors
+- Fuzzing (seed corpus + dict) and CI
+- Minimal OpenTelemetry tracing (console + OTLP)
 
 ## Quick start
+- Prereqs: Rust stable; (optional) Docker for Jaeger; nightly + cargo-fuzz for fuzzing
+- Build: `cargo build`
+- Test: `cargo test`
 
-### Build & run the HTTP server
-```bash
-cargo build
-RUST_LOG=info cargo run -- serve &# touch
+## CLI
+- `linux_gateway --decode HEX`
+- `linux_gateway make-resp <SUM>`
+- `linux_gateway make-req-trace <A> <B>`
+- `linux_gateway rpmsg-bounce <HEX>`
+- `linux_gateway --version`
 
-## CI and coverage
+## Tracing
+- Console logs/spans are always on
+- Export to Jaeger:
+  - `docker run --rm -it -p 16686:16686 -p 4317:4317 jaegertracing/all-in-one:1.57`
+  - `export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317`
+  - `cargo run`
+  - Open Jaeger: http://localhost:16686
 
-CI status:
-https://github.com/rohitha0605/linux_gateway/actions/workflows/ci.yml
+## Trace propagation
+- Requests carry `TraceCtx { trace_id(16B), span_id(8B), flags }`
+- R5 echoes `TraceCtx` back in responses
+- Test: `tests/tracing_roundtrip.rs` verifies round-trip
 
-Summary status:
-https://github.com/rohitha0605/linux_gateway/actions/workflows/ci-summary.yml
+## Protocol (rpmsg.calc.v1)
+- Protobuf messages:
+  - `CalcRequest { a, b, op=Sum, trace? }`
+  - `CalcResponse { result, trace? }`
+  - `TraceCtx { trace_id(16), span_id(8), flags }`
+- Wire (v1): `[ver=1][type][payload][crc32(payload, LE)]`
+- Types: `1=request`, `2=response`
+- CRC32: `crc32fast`
 
-## Frame layout
+## API highlights
+- Encode/decode:
+  - `encode_calc_request(a, b) -> Vec<u8>`
+  - `encode_calc_response(sum) -> Vec<u8>`
+  - `decode_calc_request(frame) -> Result<CalcRequest, FrameError>`
+  - `decode_calc_response(frame) -> Result<CalcResponse, FrameError>`
+- Header guard (no CRC needed):
+  - `guard_header(frame) -> Result<(ver, typ), FrameError>`
+- With trace context:
+  - `encode_calc_request_with_trace_ctx(a, b) -> (Vec<u8>, TraceCtx)`
 
-SYNC | VER | TYPE | LEN | CRC | PAYLOAD
-1 byte | 1 | 1 | varint | u32 little endian | protobuf bytes
+## Fuzzing
+- Install: `rustup toolchain install nightly && cargo install cargo-fuzz`
+- Seeds: `cargo +nightly run --example gen_seeds`
+- Smoke run: `cargo +nightly fuzz run frame_decode -- -runs=20000 -dict=fuzz/dict/calc.dict`
 
-LEN is the length of the protobuf payload encoded as a varint.
-CRC is CRC32 of VER, TYPE, LEN, and PAYLOAD.
+## CI checks (required)
+- build-test
+- renode-smoke
+- fuzz-smoke
+- coverage
+- sanitizers
 
-## Quickstart
+## Roadmap
+- Re-enable parked tests (CRC mismatch; compat header guard)
+- Optional R5 codegen script (nanopb) and firmware sample build
+- Optional publish crate (crates.io/docs.rs)
 
-cargo build
-cargo run -- --help
-
-# encode request with large varints
-cargo run -- make_req_trace 1073741823 715827882
-
-# encode a response then decode it
-HEX=$(cargo run --quiet -- make_resp 12345 | tr -d ' \n\r\t')
-cargo run -- --decode="$HEX"
-cargo run -- --decode="0x$HEX"
-
+## License
+- TBD

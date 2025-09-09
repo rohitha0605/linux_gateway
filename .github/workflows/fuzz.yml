@@ -1,0 +1,41 @@
+name: fuzz-smoke
+on:
+  pull_request:
+  push: { branches: [ main, "ci/**", "chore/**", "feat/**" ] }
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+
+      - name: Build corpus (examples)
+        run: cargo +nightly run --example gen_seeds
+
+      - name: Fuzz (short smoke)
+        run: |
+          set -e
+          cargo +nightly fuzz run frame_decode -- -runs=20000 -dict=fuzz/dict/calc.dict || true
+
+      - name: Collect fuzz artifacts
+        if: ${{ always() }}
+        run: |
+          mkdir -p fuzz_artifacts
+          [ -d fuzz/artifacts/frame_decode ] && cp -r fuzz/artifacts/frame_decode fuzz_artifacts/ || true
+          cp -r fuzz/corpus fuzz_artifacts/corpus || true
+
+      - name: Upload fuzz artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-${{ github.run_id }}
+          path: fuzz_artifacts
+          if-no-files-found: warn

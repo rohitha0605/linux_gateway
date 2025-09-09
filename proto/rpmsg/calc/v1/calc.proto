@@ -1,19 +1,8 @@
 syntax = "proto3";
 package rpmsg.calc.v1;
 
-message TraceHeader {
-  bytes  id      = 1; // 16 bytes trace_id
-  uint64 ts_ns   = 2; // timestamp (ns)
-  bytes  span_id = 3; // 8 bytes span_id
-}
+message TraceCtx { bytes trace_id = 1; bytes span_id = 2; uint32 flags = 3; }
+enum Op { OP_SUM = 0; }
 
-message CalcRequest {
-  uint32 a = 1;
-  uint32 b = 2;
-  TraceHeader trace = 3;
-}
-
-message CalcResponse {
-  uint32 sum = 1;
-  TraceHeader trace = 2;
-}
+message CalcRequest { Op op = 1; uint32 a = 2; uint32 b = 3; TraceCtx trace = 100; }
+message CalcResponse { uint32 result = 1; TraceCtx trace = 100; }
