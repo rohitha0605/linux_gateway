@@ -43,32 +43,53 @@ pub mod wire {
         frame
     }
 
-    pub fn wrap_v1_req(payload: &[u8]) -> Vec<u8>  { wrap_v1_typed(TYPE_REQ,  payload) }
-    pub fn wrap_v1_resp(payload: &[u8]) -> Vec<u8> { wrap_v1_typed(TYPE_RESP, payload) }
+    pub fn wrap_v1_req(payload: &[u8]) -> Vec<u8> {
+        wrap_v1_typed(TYPE_REQ, payload)
+    }
+    pub fn wrap_v1_resp(payload: &[u8]) -> Vec<u8> {
+        wrap_v1_typed(TYPE_RESP, payload)
+    }
 
-    fn unwrap_v1_typed<'a>(frame: &'a [u8], expect_typ: u8) -> Result<&'a [u8], FrameError> {
+    fn unwrap_v1_typed(frame: &[u8], expect_typ: u8) -> Result<&[u8], FrameError> {
         // Need at least: ver(1) + type(1) + crc(4) = 6 bytes
-        if frame.len() < 6 { return Err(FrameError::TooShort); }
+        if frame.len() < 6 {
+            return Err(FrameError::TooShort);
+        }
         let ver = frame[0];
-        if ver != PROTO_VERSION { return Err(FrameError::UnknownVersion(ver)); }
+        if ver != PROTO_VERSION {
+            return Err(FrameError::UnknownVersion(ver));
+        }
         let typ_actual = frame[1];
-        if typ_actual != expect_typ { return Err(FrameError::UnknownType(typ_actual)); }
+        if typ_actual != expect_typ {
+            return Err(FrameError::UnknownType(typ_actual));
+        }
 
         let payload_len = frame.len() - 2 - 4;
         let (payload, crc_bytes) = frame[2..].split_at(payload_len);
         let got = u32::from_le_bytes(crc_bytes.try_into().unwrap());
         let want = crc32(payload);
-        if got != want { return Err(FrameError::Crc); }
+        if got != want {
+            return Err(FrameError::Crc);
+        }
         Ok(payload)
     }
 
-    pub fn unwrap_v1_req(frame: &[u8])  -> Result<&[u8], FrameError> { unwrap_v1_typed(frame, TYPE_REQ) }
-    pub fn unwrap_v1_resp(frame: &[u8]) -> Result<&[u8], FrameError> { unwrap_v1_typed(frame, TYPE_RESP) }
+    pub fn unwrap_v1_req(frame: &[u8]) -> Result<&[u8], FrameError> {
+        unwrap_v1_typed(frame, TYPE_REQ)
+    }
+    pub fn unwrap_v1_resp(frame: &[u8]) -> Result<&[u8], FrameError> {
+        unwrap_v1_typed(frame, TYPE_RESP)
+    }
 }
 
 pub fn encode_calc_request(a: u32, b: u32) -> Vec<u8> {
-    use crate::proto::{Op, CalcRequest};
-    let req = CalcRequest { a, b, op: Op::Sum as i32, trace: None };
+    use crate::proto::{CalcRequest, Op};
+    let req = CalcRequest {
+        a,
+        b,
+        op: Op::Sum as i32,
+        trace: None,
+    };
     let mut payload = Vec::new();
     req.encode(&mut payload).expect("encode");
     wire::wrap_v1_req(&payload)
@@ -76,22 +97,21 @@ pub fn encode_calc_request(a: u32, b: u32) -> Vec<u8> {
 
 pub fn encode_calc_response(sum: u32) -> Vec<u8> {
     use crate::proto::CalcResponse;
-    let resp = CalcResponse { result: sum, trace: None };
+    let resp = CalcResponse {
+        result: sum,
+        trace: None,
+    };
     let mut payload = Vec::new();
     resp.encode(&mut payload).expect("encode");
     wire::wrap_v1_resp(&payload)
 }
 
-pub fn decode_calc_request(
-    frame: &[u8],
-) -> Result<crate::proto::CalcRequest, FrameError> {
+pub fn decode_calc_request(frame: &[u8]) -> Result<crate::proto::CalcRequest, FrameError> {
     let payload = wire::unwrap_v1_req(frame)?;
     crate::proto::CalcRequest::decode(payload).map_err(|_| FrameError::Decode)
 }
 
-pub fn decode_calc_response(
-    frame: &[u8],
-) -> Result<crate::proto::CalcResponse, FrameError> {
+pub fn decode_calc_response(frame: &[u8]) -> Result<crate::proto::CalcResponse, FrameError> {
     let payload = wire::unwrap_v1_resp(frame)?;
     crate::proto::CalcResponse::decode(payload).map_err(|_| FrameError::Decode)
 }
@@ -107,18 +127,55 @@ pub fn encode_calc_request_with_trace(a: u32, b: u32) -> (Vec<u8>, Vec<u8>, u64)
     (frame, trace_id, ts_ns)
 }
 
-
 /// Header-only validator used by compat tests.
 /// Checks just [ver][type] and *does not* require CRC.
-pub fn guard_header(frame: &[u8]) -> Result<(u8,u8), FrameError> {
-    if frame.len() < 1 { return Err(FrameError::TooShort); }
+pub fn guard_header(frame: &[u8]) -> Result<(u8, u8), FrameError> {
+    if frame.is_empty() {
+        return Err(FrameError::TooShort);
+    }
     let ver = frame[0];
-    if ver != crate::wire::PROTO_VERSION { return Err(FrameError::UnknownVersion(ver)); }
+    if ver != crate::wire::PROTO_VERSION {
+        return Err(FrameError::UnknownVersion(ver));
+    }
 
-    if frame.len() < 2 { return Err(FrameError::TooShort); }
+    if frame.len() < 2 {
+        return Err(FrameError::TooShort);
+    }
     let typ = frame[1];
     if typ != crate::wire::TYPE_REQ && typ != crate::wire::TYPE_RESP {
         return Err(FrameError::UnknownType(typ));
     }
     Ok((ver, typ))
+}
+
+/// Build a CalcRequest with a TraceCtx and return (framed_request, trace_ctx).
+/// Uses a time-based ID so no extra dependencies are required.
+pub fn encode_calc_request_with_trace_ctx(a: u32, b: u32) -> (Vec<u8>, crate::proto::TraceCtx) {
+    use crate::proto::{CalcRequest, Op, TraceCtx};
+    use prost::Message;
+
+    // Derive a stable-ish ID from time (u128 -> 16B trace_id, low 8B as span_id)
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("time")
+        .as_nanos();
+    let trace_u128 = ts;
+    let span_u64 = ts as u64;
+
+    let trace = TraceCtx {
+        trace_id: trace_u128.to_le_bytes().to_vec(), // 16 bytes
+        span_id: span_u64.to_le_bytes().to_vec(),    // 8 bytes
+        flags: 0,
+    };
+
+    let req = CalcRequest {
+        a,
+        b,
+        op: Op::Sum as i32,
+        trace: Some(trace.clone()),
+    };
+
+    let mut payload = Vec::new();
+    req.encode(&mut payload).expect("encode");
+    (crate::wire::wrap_v1_req(&payload), trace)
 }
