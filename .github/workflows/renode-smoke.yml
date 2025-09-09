@@ -1,0 +1,25 @@
+name: renode-smoke
+on:
+  pull_request:
+  push: { branches: [ main, "ci/**", "feat/**", "chore/**" ] }
+
+jobs:
+  renode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install ripgrep (rg)
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
+      - name: Smoke (hard assertion)
+        run: ./ci/renode_smoke.sh
+
+      - name: Upload logs (always)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: renode-smoke-logs-${{ github.run_id }}
+          path: artifacts
+          if-no-files-found: warn
