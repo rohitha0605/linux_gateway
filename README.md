@@ -71,3 +71,12 @@
 
 ## License
 - TBD
+OpenTelemetry (MVP)
+
+This repository exports spans to Jaeger to demonstrate end-to-end tracing for the Linux gateway.
+
+Quick guide: docs/otel_mvp.md
+Jaeger UI: http://localhost:16686
+Example trace: cargo run --example trace_demo
+Server with tracing: cargo run -- serve
+

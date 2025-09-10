@@ -66,11 +66,28 @@ jobs:
             tar -C afl_out -czf "afl-out-${{ github.run_id }}.tar.gz" default/queue default/fastresume.bin || true
           fi
 
+      - name: Package AFL outputs (queue/crashes) for upload
+        if: always()
+        shell: bash
+        run: |
+          set -euxo pipefail
+          shopt -s nullglob globstar
+          mkdir -p ci_artifacts
+          for d in afl-out* afl_artifacts/* fuzz/**/artifacts; do
+            [ -d "$d" ] || continue
+            for sub in queue crashes hangs; do
+              if [ -d "$d/$sub" ]; then
+                base="$(basename "$d")_${sub}"
+                tar -czf "ci_artifacts/${base}.tar.gz" -C "$d/$sub" .
+              fi
+            done
+          done
+          ls -l ci_artifacts || true
+      
       - name: Upload AFL artifacts
-        if: ${{ always() }}
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: afl-out-${{ github.run_id }}
-          path: |
-            afl-out-${{ github.run_id }}.tar.gz
-          if-no-files-found: warn
+          path: ci_artifacts/*.tar.gz
+          if-no-files-found: ignore
