@@ -570,6 +570,7 @@ dependencies = [
  "hex",
  "opentelemetry",
  "opentelemetry-jaeger",
+ "opentelemetry_sdk",
  "predicates",
  "prost",
  "prost-build",
