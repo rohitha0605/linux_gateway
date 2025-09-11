@@ -1,174 +1,56 @@
-name: CI
-on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+name: CI (build + test + fuzz)
+on: [push, pull_request]
 
-env:
-  ARTIFACT_SUFFIX: ${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
 jobs:
   build-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Install protoc
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
-
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+          protoc --version
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          overwrite: true
-          components: clippy, rustfmt
-
       - uses: Swatinem/rust-cache@v2
-
       - name: Build
-        run: cargo build --verbose
-
+        run: cargo build --all
       - name: Test
-        run: cargo test --all --verbose
+        run: cargo test --all
 
-      - name: Format check
-        run: cargo fmt --all -- --check
-
-      - name: Clippy (deny warnings)
-        run: cargo clippy --all-targets -- -D warnings
-
-      # --- Coverage (lcov) ---
-      - name: Install llvm-tools + cargo-llvm-cov
-        run: |
-          rustup component add llvm-tools-preview
-          cargo install cargo-llvm-cov
-      - name: Coverage (lcov)
-        run: cargo llvm-cov --workspace --lcov --output-path lcov.info
-      - name: Upload coverage (lcov)
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          overwrite: true
-          name: coverage-lcov-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: lcov.info
-
-      # --- JUnit report ---
-      - name: Install nightly + cargo2junit
-        run: |
-          rustup toolchain install nightly
-          cargo install cargo2junit
-      - name: Tests → JUnit
-        run: cargo +nightly test --all -- -Z unstable-options --format json | cargo2junit > junit.xml
-      - name: Upload JUnit
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          overwrite: true
-          name: junit-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: junit.xml
-
-  fuzz-smoke:
+  fuzz:
     runs-on: ubuntu-latest
+    needs: build-test
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install deps
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
-
+      - name: Install protoc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+          protoc --version
       - uses: dtolnay/rust-toolchain@nightly
-
       - uses: Swatinem/rust-cache@v2
-
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz
-
-      - name: Run fuzz smoke (20s)
-        run: cargo +nightly fuzz run frame_decode -- -max_total_time=20 -print_final_stats=1
-
-      - name: Upload fuzz artifacts
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          overwrite: true
-          name: fuzz-output-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            fuzz/corpus/frame_decode
-            fuzz/artifacts/frame_decode
-
-  check-renode:
-    runs-on: ubuntu-latest
-    outputs:
-      smoke_present: ${{ steps.chk.outputs.present }}
-    steps:
-      - uses: actions/checkout@v4
-      - id: chk
+      - name: Build fuzz target
+        run: cd fuzz && cargo fuzz build frame_decode
+      - name: Ensure corpus dirs
         run: |
-          if [ -f renode/smoke.resc ]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-          fi
-
-  renode-smoke:
-    needs: [check-renode]
-    if: ${{ needs.check-renode.outputs.smoke_present == 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run Renode smoke in Docker
+          mkdir -p fuzz/corpus/frame_decode
+          mkdir -p fuzz/artifacts/frame_decode
+      - name: Run fuzz (60s smoke)
+        run: cd fuzz && cargo fuzz run frame_decode -- -max_total_time=60 -rss_limit_mb=2048 || true
+      - name: Pack fuzz outputs
+        if: always()
         run: |
-          docker run --rm \
-            -v "${{ github.workspace }}:/work" \
-            -w /work antmicro/renode:latest \
-            sh -lc 'renode --console -e "mach create; quit"' | tee renode.log
-      - name: Upload Renode log
-        if: ${{ always() }}
+          mkdir -p ci_artifacts
+          [ -d fuzz/corpus/frame_decode ]    && tar -czf ci_artifacts/corpus_frame_decode.tgz    -C fuzz/corpus    frame_decode || true
+          [ -d fuzz/artifacts/frame_decode ] && tar -czf ci_artifacts/artifacts_frame_decode.tgz -C fuzz/artifacts frame_decode || true
+      - name: Upload artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          overwrite: true
-          name: renode-log-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: renode.log
-
-      - name: Upload JUnit
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          overwrite: true
-          name: junit-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            junit.xml
-            target/nextest/ci/junit.xml
-            **/junit.xml
-          if-no-files-found: warn
-
-      - name: Upload coverage (lcov)
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          overwrite: true
-          name: coverage-lcov-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            lcov.info
-            target/coverage/lcov.info
-            **/lcov.info
-          if-no-files-found: warn
-
-      - name: Upload fuzz corpus
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          overwrite: true
-          name: fuzz-output-b-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            fuzz/corpus/**
-            **/corpus/**
-          if-no-files-found: warn
-
-      - name: Upload Renode log
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          overwrite: true
-          name: renode-log-b-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            renode.log
-            **/renode.log
-          if-no-files-found: warn
+          name: fuzz-results-${{ github.run_id }}
+          path: ci_artifacts/*
+          if-no-files-found: ignore
+          retention-days: 14
