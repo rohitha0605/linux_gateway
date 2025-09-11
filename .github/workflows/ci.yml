@@ -6,15 +6,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Install protoc
         run: |
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler
           protoc --version
+
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+
       - name: Build
         run: cargo build --all
+
       - name: Test
         run: cargo test --all
 
@@ -23,29 +27,40 @@ jobs:
     needs: build-test
     steps:
       - uses: actions/checkout@v4
+
       - name: Install protoc
         run: |
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler
           protoc --version
+
+      # Nightly is REQUIRED for cargo-fuzz (it passes -Z flags)
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
+
       - name: Install cargo-fuzz
-        run: cargo install cargo-fuzz
-      - name: Build fuzz target
-        run: cd fuzz && cargo fuzz build frame_decode
-      - name: Ensure corpus dirs
+        run: cargo +nightly install cargo-fuzz
+
+      - name: Ensure corpus/artifacts dirs
         run: |
           mkdir -p fuzz/corpus/frame_decode
           mkdir -p fuzz/artifacts/frame_decode
+
+      - name: Build fuzz target
+        run: cargo +nightly fuzz build frame_decode
+
+      # Short smoke run; never fail the pipeline on fuzz non-zero exit
       - name: Run fuzz (60s smoke)
-        run: cd fuzz && cargo fuzz run frame_decode -- -max_total_time=60 -rss_limit_mb=2048 || true
+        run: cargo +nightly fuzz run frame_decode -- -max_total_time=60 -rss_limit_mb=2048 || true
+
+      # Pack outputs to avoid ':' filename issues on artifact upload
       - name: Pack fuzz outputs
         if: always()
         run: |
           mkdir -p ci_artifacts
           [ -d fuzz/corpus/frame_decode ]    && tar -czf ci_artifacts/corpus_frame_decode.tgz    -C fuzz/corpus    frame_decode || true
           [ -d fuzz/artifacts/frame_decode ] && tar -czf ci_artifacts/artifacts_frame_decode.tgz -C fuzz/artifacts frame_decode || true
+
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
