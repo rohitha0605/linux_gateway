@@ -1,0 +1,83 @@
+name: afl-smoke
+on:
+  pull_request:
+  push:
+    branches: [ main, "ci/**", "chore/**", "feat/**" ]
+
+jobs:
+  afl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AFL_SKIP_CPUFREQ: "1"
+      AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Install cargo-afl
+        run: cargo install cargo-afl
+
+      - name: Build harness (AFL-instrumented)
+        working-directory: afl-harness
+        run: cargo afl build --release
+
+      - name: Run AFL smoke (45s)
+        run: |
+          mkdir -p afl_out
+          cargo afl fuzz \
+            -i afl_corpus_min \
+            -o afl_out \
+            -x fuzz/dict/calc.dict \
+            -V 45 \
+            -- ./afl-harness/target/release/afl-harness
+
+      - name: Package AFL outputs (queue/crashes) for upload
+        if: always()
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p ci_artifacts
+          shopt -s nullglob
+          for d in afl-out* afl_artifacts/* fuzz/**/artifacts; do
+            [ -d "$d" ] || continue
+            for sub in queue crashes hangs; do
+              if [ -d "$d/$sub" ]; then
+                base="$(basename "$d")_${sub}"
+                tar -czf "ci_artifacts/${base}.tar.gz" -C "$d/$sub" .
+              fi
+            done
+          done
+      - name: Package AFL outputs (queue/crashes) for upload
+        if: always()
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p ci_artifacts
+          shopt -s nullglob
+          for d in afl-out* afl_artifacts/* fuzz/**/artifacts; do
+            [ -d "" ] || continue
+            for sub in queue crashes hangs; do
+              if [ -d "/" ]; then
+                base="$(basename "")_${sub}"
+                tar -czf "ci_artifacts/${base}.tar.gz" -C "/" .
+              fi
+            done
+          done
+
+      - name: Upload AFL artifacts (queue, fastresume)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          if-no-files-found: ignore
+          name: afl-out-${{ github.run_id }}
+        path: ci_artifacts/*.tar.gz
+            afl_out/default/queue
+            afl_out/default/fastresume.bin
+          if-no-files-found: warn
+        with:
+  if-no-files-found: ignore
+        with:
+  compression-level: 0

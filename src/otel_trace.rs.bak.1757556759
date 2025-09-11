@@ -1,0 +1,74 @@
+use crate::proto::TraceCtx;
+use tracing::Span;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+use opentelemetry::Context;
+use opentelemetry::trace::{
+    SpanContext, SpanId, TraceContextExt, TraceFlags, TraceId, TraceState,
+};
+
+/// Build a TraceCtx from the **current tracing span**'s OTEL context.
+pub fn current() -> Option<TraceCtx> {
+    // Get the OTEL context that is attached to the current `tracing` span
+    let cx = Span::current().context();
+    let sc = cx.span().span_context().clone();
+
+    if !sc.is_valid() {
+        return None;
+    }
+
+    let flags = if sc.trace_flags() == TraceFlags::SAMPLED { 1 } else { 0 };
+
+    Some(TraceCtx {
+        trace_id: sc.trace_id().to_bytes().to_vec(),  // 16 bytes
+        span_id:  sc.span_id().to_bytes().to_vec(),   // 8 bytes
+        flags,
+    })
+}
+
+/// Convert a received TraceCtx into an OTEL Context (for parent/child links).
+pub fn from_proto(t: Option<&TraceCtx>) -> Option<Context> {
+    let t = t?;
+    if t.trace_id.len() != 16 || t.span_id.len() != 8 {
+        return None;
+    }
+
+    let trace_id: [u8; 16] = t.trace_id.clone().try_into().ok()?;
+    let span_id:  [u8; 8]  = t.span_id.clone().try_into().ok()?;
+
+    let sc = SpanContext::new(
+        TraceId::from_bytes(trace_id),
+        SpanId::from_bytes(span_id),
+        if t.flags & 1 == 1 { TraceFlags::SAMPLED } else { TraceFlags::default() },
+        true,
+        TraceState::default(),
+    );
+
+    Some(Context::current().with_remote_span_context(sc))
+}
+use opentelemetry::trace::{TraceContextExt, SpanContext, SpanId, TraceFlags, TraceId, TraceState};
+use opentelemetry::Context;
+use crate::proto::TraceCtx;
+
+pub fn current() -> Option<TraceCtx> {
+    let cx = Context::current();
+    let span_ref = cx.span();
+    let sc = span_ref.span_context();
+    if !sc.is_valid() { return None; }
+    let flags = if sc.trace_flags() == TraceFlags::SAMPLED { 1 } else { 0 };
+    Some(TraceCtx { trace_id: sc.trace_id().to_bytes().to_vec(),
+                    span_id: sc.span_id().to_bytes().to_vec(),
+                    flags })
+}
+
+pub fn enter_remote(t: Option<&TraceCtx>) -> Option<opentelemetry::Context> {
+    let t = t?;
+    let sc = SpanContext::new(
+        TraceId::from_bytes(t.trace_id.clone().try_into().ok()?),
+        SpanId::from_bytes(t.span_id.clone().try_into().ok()?),
+        if t.flags & 1 == 1 { TraceFlags::SAMPLED } else { TraceFlags::default() },
+        true,
+        TraceState::default(),
+    );
+    Some(Context::current().with_remote_span_context(sc))
+}

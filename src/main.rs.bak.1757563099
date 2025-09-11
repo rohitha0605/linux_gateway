@@ -1,0 +1,60 @@
+mod telemetry;
+use std::env;
+
+const HELP: &str = "Usage:
+  linux_gateway make-req-trace <A> <B>
+  linux_gateway rpmsg-bounce <HEX>
+";
+
+#[tokio::main]
+async fn main() {
+    let _ = telemetry::init("linux_gateway");
+    let cli_span = tracing::info_span!("cli");
+    let _cli_enter = cli_span.enter();
+
+    let argv: Vec<String> = env::args().collect();
+
+    // rpmsg-bounce <HEX>  -> decode request, echo trace, encode response
+    if argv.len() >= 2 && argv[1] == "rpmsg-bounce" {
+        if argv.len() < 3 { eprintln!("rpmsg-bounce: missing HEX"); std::process::exit(2); }
+        let data = match hex::decode(&argv[2]) {
+            Ok(d) => d,
+            Err(e) => { eprintln!("HEX_DECODE_ERR={e}"); std::process::exit(2) }
+        };
+        match linux_gateway::decode_calc_request(&data) {
+            Ok(req) => {
+                let r5_span = tracing::info_span!("r5_compute", a = req.a, b = req.b);
+
+                if let Some(cx) = linux_gateway::otel_trace::from_proto(req.trace.as_ref()) {
+                    use tracing_opentelemetry::OpenTelemetrySpanExt;
+                    r5_span.set_parent(cx);
+                }
+                let _enter = r5_span.enter();
+
+                let sum = (req.a as i64 + req.b as i64) as i32;
+                let resp = linux_gateway::proto::CalcResponse { result: sum, trace: req.trace.clone() };
+                let frame = linux_gateway::encode_calc_response(&resp);
+                println!("{}", hex::encode_upper(frame));
+            }
+            Err(e) => { eprintln!("DECODE_REQ_ERR={e}"); std::process::exit(1) }
+        }
+        return;
+    }
+
+    // make-req-trace <A> <B>  -> create span, embed TraceCtx, encode request
+    if argv.len() >= 2 && (argv[1] == "make-req-trace" || argv[1] == "make_req_trace") {
+        if argv.len() < 4 { eprintln!("{HELP}"); std::process::exit(2); }
+        let a: i32 = argv[2].parse().unwrap_or_else(|_| { eprintln!("invalid A"); std::process::exit(2) });
+        let b: i32 = argv[3].parse().unwrap_or_else(|_| { eprintln!("invalid B"); std::process::exit(2) });
+
+        let req_span = tracing::info_span!("linux_request", a = a, b = b);
+        let _enter = req_span.enter();
+
+        let frame = linux_gateway::encode_calc_request(a, b, linux_gateway::otel_trace::current());
+        println!("{}", hex::encode_upper(frame));
+        return;
+    }
+
+    eprintln!("{HELP}");
+    std::process::exit(2);
+}

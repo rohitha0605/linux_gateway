@@ -1,8 +1,19 @@
 syntax = "proto3";
 package rpmsg.calc.v1;
 
-message TraceCtx { bytes trace_id = 1; bytes span_id = 2; uint32 flags = 3; }
-enum Op { OP_SUM = 0; }
+message TraceCtx {
+  bytes trace_id = 1;  // 16 bytes
+  bytes span_id  = 2;  // 8 bytes
+  uint32 flags   = 3;  // W3C sampling flags
+}
 
-message CalcRequest { Op op = 1; uint32 a = 2; uint32 b = 3; TraceCtx trace = 100; }
-message CalcResponse { uint32 result = 1; TraceCtx trace = 100; }
+message CalcRequest {
+  int32 a = 1;
+  int32 b = 2;
+  TraceCtx trace = 10; // new (high tag to stay stable)
+}
+
+message CalcResponse {
+  int32 result = 1;
+  TraceCtx trace = 10; // echo back
+}

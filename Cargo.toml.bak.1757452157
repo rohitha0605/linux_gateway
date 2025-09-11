@@ -20,8 +20,8 @@ tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 rand = "0.8"
 tracing-opentelemetry = "0.23"
 opentelemetry = { version = "0.22", features = ["trace"] }
-opentelemetry-jaeger = { version = "0.21", features = ["rt-tokio"] }
-opentelemetry_sdk = { version = "0.22", features = ["rt-tokio"] }
+opentelemetry-jaeger = { version = "0.22", features = ["rt-tokio"] }
+
 [build-dependencies]
 prost-build = "0.12"
 

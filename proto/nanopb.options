@@ -1,0 +1,3 @@
+# Make bytes fields compile-time fixed (no heap)
+rpmsg.calc.v1.TraceCtx.trace_id  max_size:16, type:FT_STATIC
+rpmsg.calc.v1.TraceCtx.span_id   max_size:8,  type:FT_STATIC

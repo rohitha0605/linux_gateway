@@ -1,5 +1,2 @@
-calc.CalcRequest.version  type:u32
-calc.CalcRequest.a        type:u32
-calc.CalcRequest.b        type:u32
 calc.CalcResponse.version type:u32
 calc.CalcResponse.result  type:u32

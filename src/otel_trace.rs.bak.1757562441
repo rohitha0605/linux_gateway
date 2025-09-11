@@ -1,0 +1,54 @@
+use crate::proto::TraceCtx;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
+use opentelemetry::Context;
+use opentelemetry::trace::{
+    TraceContextExt, SpanContext, SpanId, TraceFlags, TraceId, TraceState,
+};
+
+/// Always return a TraceCtx: prefer current span; fall back to synthetic IDs.
+pub fn current() -> Option<TraceCtx> {
+    // Get OTEL context from the current tracing span
+    let cx = tracing::Span::current().context();
+    let sc = { let sref = cx.span(); sref.span_context().clone() };
+    if sc.is_valid() {
+        let flags = if sc.trace_flags() == TraceFlags::SAMPLED { 1 } else { 0 };
+        return Some(TraceCtx {
+            trace_id: sc.trace_id().to_bytes().to_vec(),
+            span_id:  sc.span_id().to_bytes().to_vec(),
+            flags: flags as u32,
+        });
+    }
+    // Fallback: synthesize stable-ish IDs from time
+    let (tid, sid) = fallback_ids();
+    Some(TraceCtx { trace_id: tid.to_vec(), span_id: sid.to_vec(), flags: 1 })
+}
+
+fn fallback_ids() -> ([u8; 16], [u8; 8]) {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+    // 16-byte trace id from nanos
+    let tid = (now.as_nanos() as u128).to_be_bytes();
+    // 8-byte span id from mixed nanos/micros
+    let sid_u64 = ((now.as_nanos() as u64).rotate_left(13)) ^ (now.as_micros() as u64);
+    let sid = sid_u64.to_be_bytes();
+    (tid, sid)
+}
+
+/// Build a parent Context from incoming proto TraceCtx (for parenting)
+pub fn from_proto(t: Option<&TraceCtx>) -> Option<Context> {
+    let t = t?;
+    if t.trace_id.len() != 16 || t.span_id.len() != 8 {
+        return None;
+    }
+    let mut tid = [0u8; 16]; tid.copy_from_slice(&t.trace_id);
+    let mut sid = [0u8; 8];  sid.copy_from_slice(&t.span_id);
+    let flags = if t.flags & 1 == 1 { TraceFlags::SAMPLED } else { TraceFlags::default() };
+    let sc = SpanContext::new(
+        TraceId::from_bytes(tid),
+        SpanId::from_bytes(sid),
+        flags,
+        true,
+        TraceState::default(),
+    );
+    Some(Context::current().with_remote_span_context(sc))
+}

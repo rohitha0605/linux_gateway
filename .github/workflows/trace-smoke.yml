@@ -1,0 +1,18 @@
+name: trace-smoke
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with: { toolchain: stable, override: true }
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --locked
+      - name: Smoke (trace id round-trip)
+        run: ./scripts/trace_roundtrip_smoke.sh

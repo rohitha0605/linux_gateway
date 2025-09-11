@@ -1,0 +1,42 @@
+use crate::proto::TraceCtx;
+use tracing::Span;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
+use opentelemetry::Context;
+use opentelemetry::trace::{TraceContextExt, SpanContext, SpanId, TraceFlags, TraceId, TraceState};
+
+/// Build a TraceCtx from the **current tracing span**.
+/// Works because tracing-opentelemetry layer binds an OTEL Span to the tracing Span.
+pub fn current() -> Option<TraceCtx> {
+    let cx: Context = Span::current().context();
+    // Avoid temporary-borrow lint with a binding
+    let binding = cx.span();
+    let sc = binding.span_context();
+
+    if !sc.is_valid() {
+        return None;
+    }
+
+    let trace_id = sc.trace_id().to_bytes().to_vec();
+    let span_id  = sc.span_id().to_bytes().to_vec();
+    // In otel 0.22, TraceFlags is a bitset; equality with SAMPLED works as a check
+    let flags    = if sc.trace_flags() == TraceFlags::SAMPLED { 1 } else { 0 };
+
+    Some(TraceCtx { trace_id, span_id, flags: flags as u32 })
+}
+
+/// Make an OTEL Context from a remote TraceCtx so we can parent spans.
+pub fn from_proto(t: Option<&TraceCtx>) -> Option<Context> {
+    let t = t?;
+    if t.trace_id.len() != 16 || t.span_id.len() != 8 {
+        return None;
+    }
+    let mut tid = [0u8;16]; tid.copy_from_slice(&t.trace_id);
+    let mut sid = [0u8; 8]; sid.copy_from_slice(&t.span_id);
+
+    let trace_id = TraceId::from_bytes(tid);
+    let span_id  = SpanId::from_bytes(sid);
+    let flags    = if (t.flags & 1) != 0 { TraceFlags::SAMPLED } else { TraceFlags::default() };
+
+    let sc = SpanContext::new(trace_id, span_id, flags, /*remote=*/true, TraceState::default());
+    Some(Context::current().with_remote_span_context(sc))
+}
