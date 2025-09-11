@@ -1,14 +1,11 @@
 name: CI (build + test + fuzz)
+name: CI (build + test + fuzz)
 on:
   push:
-    branches: [ main, '**' ]   # run on any branch push; fuzz job will gate to main below
+    branches: [ main ]
   pull_request:
-    branches: [ main ]         # PRs run build+test only
-
-# Cancel older in-flight runs for the same branch
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build-test:
