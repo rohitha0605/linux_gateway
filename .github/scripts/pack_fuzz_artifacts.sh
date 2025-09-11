@@ -15,7 +15,7 @@ pack() {
   fi
 }
 
-# These globs are fine even if directories don't exist; we guard above.
+# Pack common fuzz outputs; tolerate missing paths
 pack fuzz_artifacts fuzz/artifacts/* || true
 pack fuzz_corpus    fuzz/corpus/*    || true
 pack fuzz_logs      fuzz/*/crashes fuzz/*/queue fuzz/findings/* fuzz/logs/* || true

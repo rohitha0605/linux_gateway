@@ -83,36 +83,17 @@ jobs:
       - name: Run fuzz smoke (20s)
         run: cargo +nightly fuzz run frame_decode -- -max_total_time=20 -print_final_stats=1
 
+      - name: Pack fuzz outputs (tar)
+        if: always()
+        shell: bash
+        run: .github/scripts/pack_fuzz_artifacts.sh
       - name: Upload fuzz artifacts
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           overwrite: true
           name: fuzz-output-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            fuzz/corpus/frame_decode
-            fuzz/artifacts/frame_decode
-
-  check-renode:
-    runs-on: ubuntu-latest
-    outputs:
-      smoke_present: ${{ steps.chk.outputs.present }}
-    steps:
-      - uses: actions/checkout@v4
-      - id: chk
-        run: |
-          if [ -f renode/smoke.resc ]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-          fi
-
-  renode-smoke:
-    needs: [check-renode]
-    if: ${{ needs.check-renode.outputs.smoke_present == 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+          path: _artifacts/*.tgz
       - name: Run Renode smoke in Docker
         run: |
           docker run --rm \
