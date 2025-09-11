@@ -1,0 +1,67 @@
+name: CI (build + test + fuzz)
+
+on:
+  push:
+    branches: [ main, fix/**, feat/**, pr/** ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build_test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: fmt
+        run: cargo fmt --all -- --check
+      - name: test
+        run: cargo test --all -- --quiet
+      - name: build bin
+        run: cargo build --release
+
+  fuzz_nightly:
+    # only on pushes to main (saves CI minutes on PRs)
+    if: github.event_name != 'pull_request' && startsWith(github.ref, 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+      - name: Build fuzz target
+        run: |
+          cd fuzz
+          cargo fuzz build frame_decode
+      - name: Seed corpus (optional)
+        run: |
+          mkdir -p fuzz/corpus/frame_decode
+          [ -d fuzz/seeds ] && cp -a fuzz/seeds/* fuzz/corpus/frame_decode/ || true
+      - name: Run libFuzzer (60s, 2GB RSS)
+        run: |
+          cd fuzz
+          cargo fuzz run frame_decode -- -max_total_time=60 -rss_limit_mb=2048
+      - name: Pack fuzz outputs (avoid colon in artifact paths)
+        run: |
+          tar -czf fuzz_artifacts.tgz fuzz/artifacts fuzz/corpus || true
+      - name: Upload fuzz bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz_bundle
+          path: fuzz_artifacts.tgz
+          if-no-files-found: ignore
