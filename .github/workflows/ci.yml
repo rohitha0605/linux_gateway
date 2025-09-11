@@ -1,5 +1,14 @@
 name: CI (build + test + fuzz)
-on: [push, pull_request]
+on:
+  push:
+    branches: [ main, '**' ]   # run on any branch push; fuzz job will gate to main below
+  pull_request:
+    branches: [ main ]         # PRs run build+test only
+
+# Cancel older in-flight runs for the same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-test:
@@ -23,6 +32,8 @@ jobs:
         run: cargo test --all
 
   fuzz:
+    # Only fuzz on direct pushes to main (not PRs)
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     needs: build-test
     steps:
@@ -34,7 +45,6 @@ jobs:
           sudo apt-get install -y protobuf-compiler
           protoc --version
 
-      # Nightly is REQUIRED for cargo-fuzz (it passes -Z flags)
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
 
@@ -49,11 +59,10 @@ jobs:
       - name: Build fuzz target
         run: cargo +nightly fuzz build frame_decode
 
-      # Short smoke run; never fail the pipeline on fuzz non-zero exit
       - name: Run fuzz (60s smoke)
         run: cargo +nightly fuzz run frame_decode -- -max_total_time=60 -rss_limit_mb=2048 || true
 
-      # Pack outputs to avoid ':' filename issues on artifact upload
+      # Pack outputs to avoid illegal filenames during upload
       - name: Pack fuzz outputs
         if: always()
         run: |
