@@ -19,3 +19,11 @@ fn rejects_unknown_type() {
         _ => panic!("{err:?}"),
     }
 }
+
+#[test]
+fn skips_stray_sync_bytes() {
+    let hdr = [0x5A, 0xA5, 0x5A, 0x01, 0x01];
+    let (ver, typ) = guard_header(&hdr).expect("should decode after skipping SYNC");
+    assert_eq!(ver, 1);
+    assert_eq!(typ, 1);
+}
