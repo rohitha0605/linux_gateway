@@ -10,12 +10,12 @@ fn request_header_crc_ok() {
     // Small smoke to keep existing coverage expectation intact.
     let frame = encode_calc_request(7, 35);
     assert!(frame.len() >= 6, "frame too short");
-    
+
     let payload = &frame[2..frame.len() - 4];
     let want_crc = wire::crc32(payload);
     let crc_slice = &frame[frame.len() - 4..];
     let got_crc = u32::from_le_bytes(crc_slice.try_into().unwrap());
-    
+
     assert_eq!(want_crc, got_crc, "CRC mismatch");
 }
 
