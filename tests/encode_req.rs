@@ -6,27 +6,26 @@ fn find_after_tag(payload: &[u8], tag: u8) -> Option<usize> {
 }
 
 #[test]
-#[ignore = "parked: test’s hard-coded offsets don’t match v1 framing; will rewrite to derive offsets from frame.len()"]
 fn request_header_crc_ok() {
     // Small smoke to keep existing coverage expectation intact.
     let frame = encode_calc_request(7, 35);
-    assert!(frame.len() >= 10, "frame too short");
-    let len = u16::from_be_bytes([frame[4], frame[5]]) as usize;
-    let payload = &frame[10..10 + len];
+    assert!(frame.len() >= 6, "frame too short");
+    
+    let payload = &frame[2..frame.len() - 4];
     let want_crc = wire::crc32(payload);
-    let got_crc = u32::from_be_bytes([frame[6], frame[7], frame[8], frame[9]]);
+    let crc_slice = &frame[frame.len() - 4..];
+    let got_crc = u32::from_le_bytes(crc_slice.try_into().unwrap());
+    
     assert_eq!(want_crc, got_crc, "CRC mismatch");
 }
 
 #[test]
-#[ignore = "parked: schema-agnostic varint probe is flaky; re-enable after proto is finalized"]
 fn request_varints_are_multibyte_for_large_values() {
     // Use values > 127 so varints must span multiple bytes (MSB set on first byte)
     let frame = encode_calc_request(300, 70000);
 
     // Split payload out of our framing
-    let len = u16::from_be_bytes([frame[4], frame[5]]) as usize;
-    let payload = &frame[10..10 + len];
+    let payload = &frame[2..frame.len() - 4];
 
     // Tags for proto3 varint fields: a=2 -> 0x10, b=3 -> 0x18
     let a_idx = find_after_tag(payload, 0x10).expect("no tag for field a");
