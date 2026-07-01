@@ -129,7 +129,10 @@ pub fn encode_calc_request_with_trace(a: u32, b: u32) -> (Vec<u8>, Vec<u8>, u64)
 
 /// Header-only validator used by compat tests.
 /// Checks just [ver][type] and *does not* require CRC.
-pub fn guard_header(frame: &[u8]) -> Result<(u8, u8), FrameError> {
+pub fn guard_header(mut frame: &[u8]) -> Result<(u8, u8), FrameError> {
+    while !frame.is_empty() && (frame[0] == 0xA5 || frame[0] == 0x5A) {
+        frame = &frame[1..];
+    }
     if frame.is_empty() {
         return Err(FrameError::TooShort);
     }
